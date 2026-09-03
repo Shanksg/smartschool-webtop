@@ -1,0 +1,17 @@
+# Core
+requests==2.32.4
+schedule==1.2.2
+pyyaml==6.0.2
+loguru==0.7.3
+
+# Notifications
+apprise==1.9.5
+paho-mqtt==2.1.0
+
+# Pinned transitively so the lockstep with requests is explicit
+urllib3==2.5.0
+
+# NOTE: playwright / selenium / undetected-chromedriver were removed.
+# SmartSchool gates login behind a reCAPTCHA checkbox, so browser automation
+# cannot log in unattended. Homework is fetched from the JSON API with a
+# manually supplied webToken instead. The old browser scripts are in legacy/.
