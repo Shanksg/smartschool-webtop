@@ -142,6 +142,17 @@ class Notifier:
                 }
                 if device_class:
                     config["device_class"] = device_class
+                if key == "details":
+                    # Home Assistant caps a sensor STATE at 255 chars, but the
+                    # rendered list is far longer. Keep the state a short
+                    # summary and expose the full text as a `text` attribute.
+                    config["value_template"] = (
+                        "{{ value_json.count }} today / {{ value_json.count_week }} this week"
+                    )
+                    config["json_attributes_topic"] = state_topic
+                    config["json_attributes_template"] = (
+                        "{{ {'text': value_json.details} | tojson }}"
+                    )
                 self.mqtt_client.publish(
                     f"homeassistant/sensor/smartschool_{dev}_{key}/config",
                     json.dumps(config, ensure_ascii=False),
@@ -214,8 +225,12 @@ class Notifier:
             logger.error(f"Failed to publish MQTT state: {e}")
 
     # ------------------------------------------------------------------
-    def notify_new_homework(self, student_name: str, new_items: List[HomeworkItem]) -> None:
+    def notify_new_homework(self, student_name: str, new_items: List[HomeworkItem]) -> bool:
         """Notify about every newly detected assignment, whatever its date.
+
+        Returns whether the caller may commit these items as seen: True when
+        delivered or when there is nothing to deliver to; False only on an
+        actual send failure, so the caller can retry them next cycle.
 
         The previous behaviour filtered to homework dated exactly today, which
         silently dropped both of the real cases: an assignment a teacher enters
@@ -225,11 +240,11 @@ class Notifier:
         """
         if not self.apobj or len(self.apobj) == 0:
             logger.warning("No notifiers configured - skipping notification")
-            return
+            return True  # nothing to deliver to; do not retry forever
 
         if not new_items:
             logger.info("No new homework to notify about")
-            return
+            return True
 
         today = datetime.now().strftime("%Y-%m-%d")
         # Chronological, so a digest reads in order.
@@ -251,16 +266,20 @@ class Notifier:
             if count == 1
             else f"SmartSchool Homework - {student_name} ({count} new)"
         )
-        self._send(title, "\n".join(lines))
+        return self._send(title, "\n".join(lines))
 
-    def notify_new_messages(self, messages: List[Message]) -> None:
-        """Notify about newly seen inbox messages, newest first."""
+    def notify_new_messages(self, messages: List[Message]) -> bool:
+        """Notify about newly seen inbox messages, newest first.
+
+        Returns whether the caller may commit these as seen (see
+        notify_new_homework).
+        """
         if not self.apobj or len(self.apobj) == 0:
             logger.warning("No notifiers configured - skipping message notification")
-            return
+            return True
         if not messages:
             logger.info("No new messages to notify about")
-            return
+            return True
 
         # Newest first: unlike homework, the most recent message is the point.
         items = sorted(messages, key=lambda m: m.sent_at or "", reverse=True)
@@ -284,7 +303,7 @@ class Notifier:
             if count == 1
             else f"SmartSchool - {count} new messages"
         )
-        self._send(title, "\n".join(lines))
+        return self._send(title, "\n".join(lines))
 
     def publish_messages_discovery(self, device_key: str = "inbox") -> None:
         """Discovery for the account-level inbox sensors.
@@ -321,6 +340,16 @@ class Notifier:
                 }
                 if key == "last_check":
                     config["device_class"] = "timestamp"
+                if key == "details":
+                    # HA caps a sensor state at 255 chars; keep the state short
+                    # and put the full rendered list in a `text` attribute.
+                    config["value_template"] = (
+                        "{{ value_json.unread }} unread / {{ value_json.total }} total"
+                    )
+                    config["json_attributes_topic"] = state_topic
+                    config["json_attributes_template"] = (
+                        "{{ {'text': value_json.details} | tojson }}"
+                    )
                 self.mqtt_client.publish(
                     f"homeassistant/sensor/smartschool_{device_key}_{key}/config",
                     json.dumps(config, ensure_ascii=False),

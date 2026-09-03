@@ -51,7 +51,9 @@ SNIPPET = r"""
   }
   out.selectedUser = localStorage.getItem('selectedUser');
   out.wt_uid = localStorage.getItem('wt_uid');
-  out.isMobile = false;
+  // The verified-working loginByBio request sends param5="true"; use true here
+  // so anyone following this script replays the value that actually works.
+  out.isMobile = true;
   console.log(JSON.stringify(out, null, 2));
 })();
 """
@@ -118,9 +120,14 @@ def main() -> int:
 
     # A token is not needed to call loginByBio - that is the whole point - but
     # the client wants one, so start from whatever we have (possibly expired).
+    # token.txt may carry an expiry on line 2, so read only the first line -
+    # the whole file would put a newline/date into the Cookie header.
     existing = ""
     if paths.token_file.exists():
-        existing = paths.token_file.read_text(encoding="utf-8").strip()
+        for line in paths.token_file.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                existing = line.strip()
+                break
 
     ok = False
     for mode, label in (("2", "remember-me path (loadRememberMe)"),

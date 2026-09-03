@@ -107,10 +107,13 @@ class TokenStore:
 
     def record_rotation(self, state: TokenState, new_token: str, expires: Optional[str]) -> TokenState:
         """Persist a server-rotated token so a restart keeps the live session."""
+        # A rotated token without a new Expires header starts a fresh lifetime;
+        # inheriting the old absolute expiry would make it look immediately
+        # expired. Leave expires_at None so the obtained_at TTL applies.
         updated = TokenState(
             token=new_token,
             obtained_at=_now_iso(),
-            expires_at=expires or state.expires_at,
+            expires_at=expires,
             rotated_count=state.rotated_count + 1,
             pasted_token=state.pasted_token,
         )

@@ -50,6 +50,12 @@ class BioCredentials:
             logger.warning(f"bio_credentials.json unreadable ({e}); auto-renew disabled")
             return None
 
+        # Valid JSON is not necessarily an object; a list or null would crash
+        # the .get() calls below.
+        if not isinstance(data, dict):
+            logger.warning("bio_credentials.json is not a JSON object; auto-renew disabled")
+            return None
+
         bio = data.get("bioLogin")
         if not bio:
             logger.warning("bio_credentials.json has no bioLogin; auto-renew disabled")

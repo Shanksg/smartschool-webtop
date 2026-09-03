@@ -206,12 +206,12 @@ class WebtopClient:
         bioLogin / deviceId / uniqueId, mirrored to a `bioLogin` cookie with a
         365-day lifetime (setItemShortTime(..., 525600)).
 
-        NOT USABLE on the account this was developed against: the login page
-        renders no remember-me checkbox, and the browser reported
-        cookieKeys={"uniqueId":true,"deviceId":false,"bioLogin":false,
-        "SavedUser":false} with an empty IndexedDB - so there is no credential
-        to replay. Kept because the endpoint is real and other institutions
-        may provision it; the monitor never calls it.
+        This is the monitor's primary renewal path (Monitor.renew_via_bio()):
+        verified 2026-09-03 with the params that work - `param5="true"`
+        (isMobile) and an empty deviceId, replaying a *browser*-registered
+        bioLogin. A self-registered credential (via writeBio) is accepted by
+        isBioExist but rejected here. See EXTRACT_BIO.md for the one-time
+        browser capture.
 
         Returns the new token, or None when the server declines. On success the
         token is installed on this client.
@@ -287,7 +287,10 @@ class WebtopClient:
                 for value in payload.values():
                     if isinstance(value, list) and value and isinstance(value[0], dict):
                         if any(k in value[0] for k in ("id", "Id", "classCode", "ClassCode")):
-                            entries = value
+                            # Filter to dicts, like the keyed branch: a mixed
+                            # list such as [student, null] must not reach
+                            # Student.from_api().
+                            entries = [e for e in value if isinstance(e, dict)]
                             break
                 else:
                     logger.warning(

@@ -103,13 +103,17 @@ def main() -> int:
         print(f"   endpoint ok        : {rot.ok}")
         print(f"   token ROTATED      : {rot.rotated}")
         print(f"   cookie expires     : {rot.expires or 'not sent'}")
-        if rot.set_cookie:
-            print(f"   Set-Cookie (trunc) : {rot.set_cookie[:200]}")
-        else:
-            print("   Set-Cookie         : (none returned)")
+        # Do not print the Set-Cookie body: it carries the newly issued
+        # webToken, which the token lines redact.
+        print(f"   Set-Cookie         : {'present (redacted)' if rot.set_cookie else '(none returned)'}")
         if rot.rotated:
             print(f"   old token: {_redact(before)}")
             print(f"   new token: {_redact(rot.new_token)}")
+            # Persist it like the daemon does, so a mutating rotation does not
+            # leave the stored token stale.
+            if rot.new_token:
+                store.save_renewed(rot.new_token)
+                print("   (persisted the rotated token)")
             print("\n   ==> SLIDING SESSION CONFIRMED.")
             print("       One manual login is enough; the daemon can rotate indefinitely.")
         else:

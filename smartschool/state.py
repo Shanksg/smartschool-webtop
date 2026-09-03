@@ -86,6 +86,18 @@ class SeenState:
         self._state[bucket] = current
         return new_items, dropped
 
+    def unsee(self, bucket: str, items: List) -> None:
+        """Forget specific items so they are detected as new again next run.
+
+        Used to roll back items whose notification failed to deliver, so a
+        transient failure retries instead of permanently suppressing them.
+        """
+        seen = self._state.get(bucket)
+        if not seen:
+            return
+        for item in items:
+            seen.pop(item.identity(), None)
+
 
 # Back-compat alias: the class started life as HomeworkState.
 HomeworkState = SeenState

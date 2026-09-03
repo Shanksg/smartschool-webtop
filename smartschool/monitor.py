@@ -66,13 +66,24 @@ class Monitor:
         self.client: Optional[WebtopClient] = None
         self._expiry_notified = False
         self._expiring_notified = False
+        # Display names seen via runtime discovery, so expiry state can be
+        # published for MQTT-only setups where config.yaml lists no students.
+        self._known_names: set = set()
 
     # ------------------------------------------------------------------
     def connect(self) -> bool:
-        """Load the current token and build a client. False if none usable."""
+        """Load the current token and build a client. False if none usable.
+
+        When no token has been pasted or cached, a configured bioLogin
+        credential can still mint the very first token - this is what makes the
+        credentials-only setup in EXTRACT_BIO.md work without any token.txt.
+        """
         try:
             self.token_state = self.store.load()
         except TokenMissing as e:
+            if self.renew_via_bio():
+                logger.info("No pasted token; minted the initial token via bioLogin")
+                return True
             logger.error(str(e))
             return False
 
@@ -147,11 +158,15 @@ class Monitor:
         if not self._expiry_notified:
             self.notifier.notify_token_expired(str(self.config.paths.token_file))
             self._expiry_notified = True
-        for student in self.config.students:
-            name = student.get("name")
-            if name:
-                self.notifier.publish_discovery(name)
-                self.notifier.publish_state(name, [], token_status="expired")
+
+        # Publish the expired status for every student we know about - the ones
+        # in config.yaml AND the ones discovered at runtime - so an MQTT-only
+        # setup (no config.yaml) still flips token_status away from "ok".
+        names = {s.get("name") for s in self.config.students if s.get("name")}
+        names |= self._known_names
+        for name in names:
+            self.notifier.publish_discovery(name)
+            self.notifier.publish_state(name, [], token_status="expired")
 
     # ------------------------------------------------------------------
     def token_minutes_left(self) -> Optional[float]:
@@ -250,8 +265,11 @@ class Monitor:
             logger.info(f"{source} endpoint responded with no homework")
             return items
 
+        # Every source errored. Do NOT return [] - the caller would treat an
+        # outage as "no homework", overwrite the student's seen state with
+        # nothing, and re-notify every assignment once the endpoint recovers.
         if last_error:
-            logger.error(f"All homework sources failed; last error: {last_error}")
+            raise last_error
         return []
 
     def _pupilcard_params(self, student: Student) -> Optional[dict]:
@@ -275,14 +293,27 @@ class Monitor:
                 "weekIndex": 0,
             }
 
-        # Only fall back to config when discovery gave us nothing to work with.
-        for entry in self.config.students:
-            if entry.get("student_params"):
+        # Fall back to config only when discovery gave us nothing for THIS
+        # student. Match by studentID or name so one child's frozen params are
+        # never used for another child (which would attribute their homework to
+        # the wrong name).
+        configured = [e for e in self.config.students if e.get("student_params")]
+        for entry in configured:
+            sp = entry["student_params"]
+            if sp.get("studentID") == student.student_id or entry.get("name") == student.name:
                 logger.warning(
-                    "Falling back to student_params from config.yaml; these go "
-                    "stale every school year and can cause 'view is blocked'"
+                    "Falling back to matched student_params from config.yaml; "
+                    "these go stale every school year and can cause 'view is blocked'"
                 )
-                return entry["student_params"]
+                return sp
+
+        # An unmatched fallback is only safe when a single student is configured.
+        if len(configured) == 1:
+            logger.warning(
+                "Using the sole configured student_params as a fallback; "
+                "these go stale every school year"
+            )
+            return configured[0]["student_params"]
         return None
 
     # ------------------------------------------------------------------
@@ -322,7 +353,9 @@ class Monitor:
                 "message(s) without notifying (set SEED_QUIETLY=0 to notify)"
             )
         elif new_messages:
-            self.notifier.notify_new_messages(new_messages)
+            if not self.notifier.notify_new_messages(new_messages):
+                # Delivery failed - forget these so they retry next cycle.
+                self.messages_state.unsee(INBOX_BUCKET, new_messages)
         else:
             logger.info("No new messages")
         if dropped:
@@ -361,12 +394,18 @@ class Monitor:
 
         for student in students:
             name = self.config.display_name_for(student)
+            self._known_names.add(name)
             try:
                 items = self.fetch_homework(student)
             except TokenExpired:
                 logger.error(f"Token rejected while fetching homework for {name}")
                 self._handle_expired()
                 return
+            except (ApiError, RequestFailed) as e:
+                # A fetch outage - leave this student's seen state and MQTT
+                # untouched so recovery does not re-notify existing homework.
+                logger.error(f"Homework fetch failed for {name} ({e}); skipping this student")
+                continue
 
             # Seed silently the first time we see a student: the endpoint
             # returns a six-day window, so announcing all of it would fire a
@@ -387,7 +426,10 @@ class Monitor:
                     "assignment(s) without notifying (set SEED_QUIETLY=0 to notify)"
                 )
             elif new_items:
-                self.notifier.notify_new_homework(name, new_items)
+                if not self.notifier.notify_new_homework(name, new_items):
+                    # Delivery failed - forget these so they retry next cycle
+                    # instead of being permanently suppressed.
+                    self.state.unsee(name, new_items)
             else:
                 logger.info(f"No new homework for {name}")
             if dropped:
