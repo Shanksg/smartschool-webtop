@@ -1,0 +1,66 @@
+# Configuration, credentials and runtime state - never commit anything in config/
+.env
+.env.*
+!.env.example
+config/*
+!config/.gitkeep
+
+# Sensitive files
+token.txt
+cookies.txt
+page_source.html
+files/
+
+# Logs
+logs/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Screenshots and debug images (may contain sensitive info)
+*.png
+*.jpg
+*.jpeg
+*.gif
+
+# Docker
+.dockerignore
+
+# Rescued from the old gitignored files/ snapshot - reference only
+legacy/rescued-from-files/
+
+# Superseded scripts/docs kept locally for reference; not shipped
+/legacy/
