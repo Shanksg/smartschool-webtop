@@ -47,6 +47,9 @@ class Notifier:
         self.apobj = None
         self.mqtt_client = None
         self._discovery_sent = set()
+        # Last full state payload published per student, so token status can be
+        # updated on expiry without clobbering the retained homework fields.
+        self._last_state: dict = {}
         self._setup_apprise(notifiers or os.getenv("NOTIFIERS", ""))
         self._setup_mqtt(mqtt_config or {})
 
@@ -214,6 +217,7 @@ class Notifier:
             ),
         }
 
+        self._last_state[student_name] = dict(payload)
         try:
             self.mqtt_client.publish(
                 f"smartschool/{dev}/state",
@@ -223,6 +227,42 @@ class Notifier:
             logger.info(f"Published MQTT state for {student_name}: {len(todays)} item(s) today")
         except Exception as e:
             logger.error(f"Failed to publish MQTT state: {e}")
+
+    def publish_token_status(
+        self, student_name: str, status: str, *, token_minutes_left: Optional[float] = None
+    ) -> None:
+        """Update only the token status, preserving the last homework payload.
+
+        On expiry we must not overwrite the retained homework with count=0 /
+        "No homework" - no fetch established that. Re-publish the last-known
+        payload with just token_status changed; fall back to a minimal payload
+        if nothing has been published yet (e.g. expiry on the first run).
+        """
+        if not self.mqtt_client:
+            return
+        dev = device_id_for(student_name)
+        payload = dict(self._last_state.get(student_name) or {})
+        payload.setdefault("count", 0)
+        payload.setdefault("count_week", 0)
+        payload.setdefault("count_upcoming", 0)
+        payload.setdefault("details", "")
+        payload["last_check"] = payload.get("last_check") or datetime.now().isoformat()
+        payload["token_status"] = status
+        payload["token_hours_left"] = (
+            round(token_minutes_left / 60, 1)
+            if token_minutes_left is not None
+            else payload.get("token_hours_left")
+        )
+        self._last_state[student_name] = payload
+        try:
+            self.mqtt_client.publish(
+                f"smartschool/{dev}/state",
+                json.dumps(payload, ensure_ascii=False),
+                retain=True,
+            )
+            logger.info(f"Published token_status={status} for {student_name}")
+        except Exception as e:
+            logger.error(f"Failed to publish token status: {e}")
 
     # ------------------------------------------------------------------
     def notify_new_homework(self, student_name: str, new_items: List[HomeworkItem]) -> bool:

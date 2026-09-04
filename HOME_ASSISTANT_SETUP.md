@@ -274,11 +274,12 @@ cards:
         name: Token
   - type: markdown
     content: >
-      {{ states('sensor.smartschool_<student>_homework_details') }}
+      {{ state_attr('sensor.smartschool_<student>_homework_details', 'text') }}
 ```
 
-The details sensor holds multi-line text, so a `markdown` card renders it far
-better than an `entities` row.
+The details sensor's **state** is a short summary (Home Assistant caps a state
+at 255 chars); the full multi-line list lives in its `text` **attribute**, so
+the card reads `state_attr(..., 'text')`, not `states(...)`.
 
 ---
 

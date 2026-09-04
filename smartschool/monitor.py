@@ -166,7 +166,9 @@ class Monitor:
         names |= self._known_names
         for name in names:
             self.notifier.publish_discovery(name)
-            self.notifier.publish_state(name, [], token_status="expired")
+            # Update only token status; do NOT clobber the retained homework
+            # with an empty set that no fetch established.
+            self.notifier.publish_token_status(name, "expired")
 
     # ------------------------------------------------------------------
     def token_minutes_left(self) -> Optional[float]:
@@ -200,6 +202,32 @@ class Monitor:
             self._expiring_notified = True
 
     # ------------------------------------------------------------------
+    def pick_up_new_paste(self) -> None:
+        """Switch to a token pasted while the current one is still valid.
+
+        connect() only reads the store when there is no client, so a token
+        pasted before the old one 401s would otherwise be ignored until it
+        fails. Reload the store each rotation and swap the client when the
+        active token changed - this is the documented "picked up within one
+        cycle" behaviour.
+        """
+        if not self.token_state:
+            return
+        try:
+            latest = self.store.load()
+        except TokenMissing:
+            return
+        if latest.token != self.token_state.token:
+            logger.info("Picked up a newly pasted token from token.txt")
+            self.token_state = latest
+            if self.client:
+                self.client.close()
+            self.client = WebtopClient(
+                latest.token, timeout=20.0, verify_tls=self.config.verify_tls
+            )
+            self._expiry_notified = False
+            self._expiring_notified = False
+
     def rotate_token(self) -> bool:
         """Poll CheckBackgroundToken and persist a rotated token.
 
@@ -207,6 +235,8 @@ class Monitor:
         """
         if not self.client and not self.connect():
             return False
+
+        self.pick_up_new_paste()
 
         try:
             result = self.client.refresh_token()
@@ -293,27 +323,21 @@ class Monitor:
                 "weekIndex": 0,
             }
 
-        # Fall back to config only when discovery gave us nothing for THIS
-        # student. Match by studentID or name so one child's frozen params are
-        # never used for another child (which would attribute their homework to
-        # the wrong name).
-        configured = [e for e in self.config.students if e.get("student_params")]
-        for entry in configured:
-            sp = entry["student_params"]
+        # Fall back to config only for a POSITIVELY matched student. Never use
+        # an unmatched entry: a parent account can discover several children
+        # while only one has fallback params, and borrowing them would fetch
+        # one child's homework under another child's name. An unmatched student
+        # returns None and relies on the dashboard fallback instead.
+        for entry in self.config.students:
+            sp = entry.get("student_params")
+            if not sp:
+                continue
             if sp.get("studentID") == student.student_id or entry.get("name") == student.name:
                 logger.warning(
                     "Falling back to matched student_params from config.yaml; "
                     "these go stale every school year and can cause 'view is blocked'"
                 )
                 return sp
-
-        # An unmatched fallback is only safe when a single student is configured.
-        if len(configured) == 1:
-            logger.warning(
-                "Using the sole configured student_params as a fallback; "
-                "these go stale every school year"
-            )
-            return configured[0]["student_params"]
         return None
 
     # ------------------------------------------------------------------

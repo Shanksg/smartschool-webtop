@@ -69,6 +69,7 @@ class RecordingNotifier(Notifier):
         self.apobj = _FakeApprise()
         self.mqtt_client = None
         self._discovery_sent = set()
+        self._last_state = {}
 
     def _send(self, title, body):
         self.sent.append((title, body))

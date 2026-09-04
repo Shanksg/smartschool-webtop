@@ -12,8 +12,10 @@ class SmartSchoolError(Exception):
 class TokenExpired(SmartSchoolError):
     """The webToken is no longer accepted (HTTP 401, or status=false on a token check).
 
-    This is recoverable only by a human: SmartSchool requires a reCAPTCHA
-    checkbox on login, so the monitor cannot re-authenticate on its own.
+    Recovered automatically when a bioLogin credential is configured: the
+    monitor mints a fresh token via user/loginByBio (Monitor.renew_via_bio()).
+    Only without that credential does it need a human - SmartSchool gates login
+    behind a reCAPTCHA checkbox - and it then notifies for a manual paste.
     """
 
 

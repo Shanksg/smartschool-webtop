@@ -1,11 +1,10 @@
 """Tests for login_by_bio.
 
-Context: this endpoint would remove the manual daily token paste entirely, and
-the mechanism is real (the SPA uses it to restore sessions, with a 365-day
-credential). It is unusable on the account this was built against - the
-browser reported bioLogin/deviceId/SavedUser all absent and an empty
-IndexedDB - so it is covered by offline tests only, and the monitor never
-calls it.
+Context: this is the monitor's primary renewal path. Monitor.connect(),
+proactive renewal in warn_if_expiring(), and _handle_expired() all call it
+(via renew_via_bio()) to mint a fresh webToken from a browser-registered
+bioLogin credential - no password, no captcha. These tests stub the HTTP; the
+live capture flow is documented in EXTRACT_BIO.md.
 """
 
 import json

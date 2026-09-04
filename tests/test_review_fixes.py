@@ -128,11 +128,16 @@ def test_pupilcard_params_no_cross_student_fallback(tmp_path, monkeypatch):
     assert m._pupilcard_params(bob)["studentID"] == "bob-id"
 
 
-def test_pupilcard_single_configured_student_fallback(tmp_path, monkeypatch):
+def test_pupilcard_no_unmatched_fallback_even_for_single_config(tmp_path, monkeypatch):
+    """A single configured entry is NOT a safe fallback for an unmatched
+    student: a parent may discover several children while only one has params."""
     m = _monitor(tmp_path, monkeypatch)
     m.config.students = [{"name": "Only", "student_params": {"studentID": "only-id", "classCode": 3}}]
     unknown = Student(student_id="different", name="Other", class_code=None)
-    assert m._pupilcard_params(unknown)["studentID"] == "only-id", "sole config is a safe fallback"
+    assert m._pupilcard_params(unknown) is None, "must not borrow the configured child's params"
+    # but a positive match still works
+    matched = Student(student_id="only-id", name="Only", class_code=None)
+    assert m._pupilcard_params(matched)["studentID"] == "only-id"
 
 
 # ---- #13 record_rotation does not inherit old expiry ----
@@ -163,3 +168,72 @@ def test_connect_uses_bio_when_no_token(tmp_path, monkeypatch):
     monkeypatch.setattr(WebtopClient, "login_by_bio", lambda self, **kw: "MINTED")
     assert m.connect() is True
     assert m.token_state.token == "MINTED"
+
+
+# ---- follow-up review: expiry must not clobber retained homework ----
+class _CapMqtt:
+    def __init__(self):
+        self.published = {}
+
+    def publish(self, topic, payload, retain=False):
+        self.published[topic] = payload
+
+
+def test_expiry_preserves_last_homework_payload(tmp_path, monkeypatch):
+    from smartschool.notifiers import Notifier, device_id_for
+
+    n = Notifier.__new__(Notifier)
+    n.apobj = None
+    n._discovery_sent = set()
+    n._last_state = {}
+    n.mqtt_client = _CapMqtt()
+
+    # publish real homework state first
+    n.publish_state("kid", [HomeworkItem(subject="מתמטיקה", homework="p45", date="2026-09-02")])
+    topic = f"smartschool/{device_id_for('kid')}/state"
+    before = json.loads(n.mqtt_client.published[topic])
+    assert before["count_week"] == 1
+
+    # now flip token status on expiry - homework fields must survive
+    n.publish_token_status("kid", "expired")
+    after = json.loads(n.mqtt_client.published[topic])
+    assert after["token_status"] == "expired"
+    assert after["count_week"] == 1, "must not overwrite retained homework with empty"
+    assert after["details"] == before["details"]
+
+
+def test_token_status_minimal_when_nothing_published_yet():
+    from smartschool.notifiers import Notifier, device_id_for
+
+    n = Notifier.__new__(Notifier)
+    n.apobj = None
+    n._discovery_sent = set()
+    n._last_state = {}
+    n.mqtt_client = _CapMqtt()
+
+    n.publish_token_status("kid", "expired")
+    payload = json.loads(n.mqtt_client.published[f"smartschool/{device_id_for('kid')}/state"])
+    assert payload["token_status"] == "expired"
+    assert payload["count"] == 0  # sane minimal fields
+
+
+# ---- follow-up review: pick up a new paste while old token still valid ----
+def test_pick_up_new_paste_swaps_client(tmp_path, monkeypatch):
+    m = _monitor(tmp_path, monkeypatch)
+    assert m.token_state.token == "tok"
+    old_client = m.client
+
+    # user pastes a replacement while the current token is still fine
+    (m.config.paths.config_dir / "token.txt").write_text("NEWTOK", encoding="utf-8")
+    m.pick_up_new_paste()
+
+    assert m.token_state.token == "NEWTOK"
+    assert m.client is not old_client
+    assert m.client.token == "NEWTOK"
+
+
+def test_pick_up_new_paste_noop_when_unchanged(tmp_path, monkeypatch):
+    m = _monitor(tmp_path, monkeypatch)
+    client = m.client
+    m.pick_up_new_paste()  # token.txt unchanged
+    assert m.client is client, "must not rebuild the client when the token is the same"
