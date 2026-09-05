@@ -1,0 +1,28 @@
+services:
+  smartschool-monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: smartschool-homework-monitor
+    restart: unless-stopped
+
+    # Secrets live in .env (gitignored), not inline in this file.
+    env_file:
+      - .env
+
+    environment:
+      SCHEDULES: "${SCHEDULES:-12:00,16:00,20:00}"
+      TOKEN_ROTATE_MINUTES: "${TOKEN_ROTATE_MINUTES:-20}"
+      PYTHONUNBUFFERED: "1"
+
+    volumes:
+      # config/ holds token.txt (you paste the webToken here), token_cache.json
+      # and homework_state.json
+      - ./config:/app/config
+      - ./logs:/app/logs
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
