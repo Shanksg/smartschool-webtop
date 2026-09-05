@@ -115,8 +115,12 @@ class Monitor:
         if not creds:
             return False
 
-        # loginByBio does not need a live token; build a client if we lack one.
-        client = self.client or WebtopClient("", verify_tls=self.config.verify_tls)
+        # loginByBio MUST be sent from a clean session with no webToken cookie -
+        # the browser calls it on a fresh page load. Reusing a client that
+        # carries a stale/dead webToken makes the server mint a token that is
+        # itself immediately invalid (verified 2026-09-05). So always mint from
+        # a fresh client rather than reusing self.client.
+        client = WebtopClient("", verify_tls=self.config.verify_tls)
         try:
             new_token = client.login_by_bio(
                 bio_login=creds.bio_login,
@@ -128,13 +132,17 @@ class Monitor:
             )
         except (TokenExpired, ApiError, RequestFailed) as e:
             logger.warning(f"bioLogin renewal failed: {e}")
+            client.close()
             return False
 
         if not new_token:
+            client.close()
             return False
 
         logger.info("Renewed the webToken automatically via bioLogin")
-        self.client = client
+        if self.client and self.client is not client:
+            self.client.close()
+        self.client = client  # already holds the freshly minted token
         self.token_state = self.store.save_renewed(new_token)
         self._expiry_notified = False
         self._expiring_notified = False

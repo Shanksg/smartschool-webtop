@@ -237,3 +237,31 @@ def test_pick_up_new_paste_noop_when_unchanged(tmp_path, monkeypatch):
     client = m.client
     m.pick_up_new_paste()  # token.txt unchanged
     assert m.client is client, "must not rebuild the client when the token is the same"
+
+
+# ---- bug found during post-merge check: renew must mint from a CLEAN client ----
+def test_renew_via_bio_mints_from_clean_client(tmp_path, monkeypatch):
+    """loginByBio must be sent with no stale webToken cookie - carrying a dead
+    token makes the server mint an immediately-invalid token."""
+    m = _monitor(tmp_path, monkeypatch)
+    (m.config.paths.config_dir / "bio_credentials.json").write_text(
+        json.dumps({"bioLogin": "B", "uniqueId": "u", "selectedUser": "s", "isMobile": True}),
+        encoding="utf-8",
+    )
+    # give the current client a (dead) token
+    m.client.set_token("DEAD-TOKEN")
+
+    seen_cookie = {}
+
+    def capture(self, **kw):
+        # what webToken does the client used for loginByBio carry?
+        seen_cookie["token"] = self._current_cookie_token()
+        self.set_token("FRESH")
+        return "FRESH"
+
+    monkeypatch.setattr(WebtopClient, "login_by_bio", capture)
+    assert m.renew_via_bio() is True
+    assert m.token_state.token == "FRESH"
+    # the client used to mint must NOT have carried the dead token
+    assert seen_cookie["token"] in (None, ""), "loginByBio was sent with a stale webToken"
+    assert m.client.token == "FRESH"
