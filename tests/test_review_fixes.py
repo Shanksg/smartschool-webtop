@@ -265,3 +265,39 @@ def test_renew_via_bio_mints_from_clean_client(tmp_path, monkeypatch):
     # the client used to mint must NOT have carried the dead token
     assert seen_cookie["token"] in (None, ""), "loginByBio was sent with a stale webToken"
     assert m.client.token == "FRESH"
+
+
+# ---- pre-merge review: renewal must never propagate an unexpected error ----
+def test_renew_via_bio_swallows_unexpected_errors(tmp_path, monkeypatch):
+    m = _monitor(tmp_path, monkeypatch)
+    (m.config.paths.config_dir / "bio_credentials.json").write_text(
+        json.dumps({"bioLogin": "B", "uniqueId": "u"}), encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        WebtopClient, "login_by_bio",
+        lambda self, **kw: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+    # must return False, not raise
+    assert m.renew_via_bio() is False
+
+
+def test_start_stays_up_on_transient_startup_failure_with_bio(tmp_path, monkeypatch):
+    """A transient renewal failure at startup must not kill a bio-configured
+    daemon - it enters the loop and retries."""
+    from smartschool.config import Config, Paths
+    from smartschool.monitor import Monitor
+
+    monkeypatch.setenv("NOTIFIERS", "")
+    monkeypatch.setenv("MQTT_BROKER", "")
+    paths = Paths(root=tmp_path)
+    paths.ensure()
+    (paths.config_dir / "bio_credentials.json").write_text(
+        json.dumps({"bioLogin": "B", "uniqueId": "u"}), encoding="utf-8"
+    )
+    m = Monitor(Config(paths))
+    # connect fails (renewal declines), but bio is configured
+    monkeypatch.setattr(WebtopClient, "login_by_bio", lambda self, **kw: None)
+    assert m.connect() is False
+    # the start() guard: with a bio credential present, it does NOT return early
+    from smartschool.bio import BioCredentials
+    assert BioCredentials.load(paths.config_dir) is not None

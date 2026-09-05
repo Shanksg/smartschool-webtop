@@ -134,6 +134,12 @@ class Monitor:
             logger.warning(f"bioLogin renewal failed: {e}")
             client.close()
             return False
+        except Exception as e:
+            # Renewal is a recovery path; never let an unexpected error
+            # propagate and crash the daemon - degrade to "not renewed".
+            logger.error(f"Unexpected error during bioLogin renewal: {e}")
+            client.close()
+            return False
 
         if not new_token:
             client.close()
@@ -472,14 +478,25 @@ class Monitor:
 
     # ------------------------------------------------------------------
     def start(self) -> None:
-        logger.info("Starting SmartSchool Homework Monitor (manual-token mode)")
+        logger.info("Starting SmartSchool Homework Monitor")
 
         if not self.connect():
-            logger.error(
-                "No token available. Paste a webToken into "
-                f"{self.config.paths.token_file} and restart."
-            )
-            return
+            # A bioLogin credential can recover on its own, so a transient
+            # failure at startup must not kill the daemon - enter the loop and
+            # let each cycle retry connect(). Only give up when there is nothing
+            # to retry with (no token AND no credential).
+            if BioCredentials.load(self.config.paths.config_dir):
+                logger.warning(
+                    "Initial connect failed but a bioLogin credential is "
+                    "configured; starting anyway and retrying each cycle."
+                )
+            else:
+                logger.error(
+                    "No token and no bioLogin credential. Paste a webToken into "
+                    f"{self.config.paths.token_file} (see README) and restart, "
+                    "or set up config/bio_credentials.json (see EXTRACT_BIO.md)."
+                )
+                return
 
         for when in self.config.schedules:
             schedule.every().day.at(when).do(self.check_all)
