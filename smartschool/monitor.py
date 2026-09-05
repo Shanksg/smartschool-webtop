@@ -115,8 +115,12 @@ class Monitor:
         if not creds:
             return False
 
-        # loginByBio does not need a live token; build a client if we lack one.
-        client = self.client or WebtopClient("", verify_tls=self.config.verify_tls)
+        # loginByBio MUST be sent from a clean session with no webToken cookie -
+        # the browser calls it on a fresh page load. Reusing a client that
+        # carries a stale/dead webToken makes the server mint a token that is
+        # itself immediately invalid (verified 2026-09-05). So always mint from
+        # a fresh client rather than reusing self.client.
+        client = WebtopClient("", verify_tls=self.config.verify_tls)
         try:
             new_token = client.login_by_bio(
                 bio_login=creds.bio_login,
@@ -128,13 +132,23 @@ class Monitor:
             )
         except (TokenExpired, ApiError, RequestFailed) as e:
             logger.warning(f"bioLogin renewal failed: {e}")
+            client.close()
+            return False
+        except Exception as e:
+            # Renewal is a recovery path; never let an unexpected error
+            # propagate and crash the daemon - degrade to "not renewed".
+            logger.error(f"Unexpected error during bioLogin renewal: {e}")
+            client.close()
             return False
 
         if not new_token:
+            client.close()
             return False
 
         logger.info("Renewed the webToken automatically via bioLogin")
-        self.client = client
+        if self.client and self.client is not client:
+            self.client.close()
+        self.client = client  # already holds the freshly minted token
         self.token_state = self.store.save_renewed(new_token)
         self._expiry_notified = False
         self._expiring_notified = False
@@ -464,14 +478,25 @@ class Monitor:
 
     # ------------------------------------------------------------------
     def start(self) -> None:
-        logger.info("Starting SmartSchool Homework Monitor (manual-token mode)")
+        logger.info("Starting SmartSchool Homework Monitor")
 
         if not self.connect():
-            logger.error(
-                "No token available. Paste a webToken into "
-                f"{self.config.paths.token_file} and restart."
-            )
-            return
+            # A bioLogin credential can recover on its own, so a transient
+            # failure at startup must not kill the daemon - enter the loop and
+            # let each cycle retry connect(). Only give up when there is nothing
+            # to retry with (no token AND no credential).
+            if BioCredentials.load(self.config.paths.config_dir):
+                logger.warning(
+                    "Initial connect failed but a bioLogin credential is "
+                    "configured; starting anyway and retrying each cycle."
+                )
+            else:
+                logger.error(
+                    "No token and no bioLogin credential. Paste a webToken into "
+                    f"{self.config.paths.token_file} (see README) and restart, "
+                    "or set up config/bio_credentials.json (see EXTRACT_BIO.md)."
+                )
+                return
 
         for when in self.config.schedules:
             schedule.every().day.at(when).do(self.check_all)

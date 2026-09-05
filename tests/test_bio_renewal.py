@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from smartschool.bio import BioCredentials
+from smartschool.client import WebtopClient
 from smartschool.exceptions import ApiError, RequestFailed, TokenExpired
 from smartschool.session import TokenStore
 
@@ -121,7 +122,7 @@ def _monitor(tmp_path, monkeypatch, with_creds=True):
 
 def test_renew_via_bio_installs_new_token(tmp_path, monkeypatch):
     m = _monitor(tmp_path, monkeypatch)
-    monkeypatch.setattr(m.client, "login_by_bio", lambda **kw: "MINTED-TOKEN")
+    monkeypatch.setattr(WebtopClient, "login_by_bio", lambda self, **kw: "MINTED-TOKEN")
 
     assert m.renew_via_bio() is True
     assert m.client.token == "MINTED-TOKEN" or m.token_state.token == "MINTED-TOKEN"
@@ -136,7 +137,7 @@ def test_renew_via_bio_passes_the_right_params(tmp_path, monkeypatch):
         captured.update(kw)
         return "T"
 
-    monkeypatch.setattr(m.client, "login_by_bio", fake)
+    monkeypatch.setattr(WebtopClient, "login_by_bio", lambda self, **kw: fake(**kw))
     m.renew_via_bio()
     assert captured["is_mobile"] is True          # the working value
     assert captured["device_id"] == ""
@@ -151,7 +152,7 @@ def test_renew_via_bio_false_without_credentials(tmp_path, monkeypatch):
 
 def test_renew_via_bio_false_when_server_declines(tmp_path, monkeypatch):
     m = _monitor(tmp_path, monkeypatch)
-    monkeypatch.setattr(m.client, "login_by_bio", lambda **kw: None)
+    monkeypatch.setattr(WebtopClient, "login_by_bio", lambda self, **kw: None)
     assert m.renew_via_bio() is False
 
 
@@ -161,7 +162,7 @@ def test_renew_via_bio_false_on_error(tmp_path, monkeypatch):
     def boom(**kw):
         raise RequestFailed("network")
 
-    monkeypatch.setattr(m.client, "login_by_bio", boom)
+    monkeypatch.setattr(WebtopClient, "login_by_bio", lambda self, **kw: boom(**kw))
     assert m.renew_via_bio() is False
 
 
@@ -170,7 +171,7 @@ def test_renew_via_bio_false_on_error(tmp_path, monkeypatch):
 # ----------------------------------------------------------------------
 def test_handle_expired_renews_instead_of_notifying(tmp_path, monkeypatch):
     m = _monitor(tmp_path, monkeypatch)
-    monkeypatch.setattr(m.client, "login_by_bio", lambda **kw: "RENEWED")
+    monkeypatch.setattr(WebtopClient, "login_by_bio", lambda self, **kw: "RENEWED")
 
     notified = []
     monkeypatch.setattr(m.notifier, "notify_token_expired", lambda f: notified.append(f))
