@@ -118,9 +118,17 @@ early, which is merely conservative, not wrong.
 ```bash
 pip install -r requirements.txt
 cp .env.example .env        # fill in NOTIFIERS / MQTT_*
-# create config/token.txt as described in
-# "Getting a long-lived token" above
 ```
+
+Then give the monitor credentials, either:
+
+- **Recommended (self-renewing):** set up `config/bio_credentials.json` once —
+  see [EXTRACT_BIO.md](EXTRACT_BIO.md). The monitor mints its own tokens for
+  ~a year and `config/token.txt` becomes optional.
+- **Or paste a token:** put a `webToken` into `config/token.txt` — see
+  [Getting a long-lived token](#getting-a-long-lived-token-6-months).
+
+`config/` is gitignored, so nothing you put there is ever committed.
 
 ### Verify the token and the API
 
@@ -249,25 +257,14 @@ smartschool/
   notifiers.py   Apprise + Home Assistant MQTT
   monitor.py     scheduler daemon
   config.py      paths + settings
-tests/           133 offline tests, no network
+tests/           168 offline tests, no network
 token_test.py    live token/API diagnostics
-bio_test.py      probes the loginByBio renewal path (closed; see notes)
-legacy/          superseded scripts, kept for reference
+bio_test.py      verifies the loginByBio renewal setup (see EXTRACT_BIO.md)
 ```
 
 The endpoint map was derived from the SmartSchool web client, reimplemented
 synchronously and extended with token renewal and session keep-alive. Password
 login is deliberately not used, for the captcha reason above.
-
-## `legacy/`
-
-Kept for reference, not used at runtime:
-
-- `legacy/autologin/` — seven browser-automation login scripts. These cannot
-  work: the captcha is mandatory and server-verified.
-- `legacy/smartschool_monitor.py`, `legacy/smartschool_monitor_v2.py` — the
-  previous single-file monitors, superseded by the `smartschool/` package.
-- `legacy/docs/` — earlier overlapping docs, superseded by this README.
 
 ## Testing
 
