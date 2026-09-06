@@ -1,0 +1,5 @@
+# Code owners for this repository.
+# @Shanksg is requested for review on any change and owns all paths.
+# (Enforced only when branch protection has "Require review from Code Owners"
+#  enabled for the default branch.)
+* @Shanksg

@@ -274,3 +274,8 @@ python3 -m pytest tests/ -q
 ```
 
 Offline and hermetic — all HTTP is stubbed.
+
+## License
+
+[MIT](LICENSE) — a permissive, OSI-approved open-source license. Free to use,
+modify, and distribute.
