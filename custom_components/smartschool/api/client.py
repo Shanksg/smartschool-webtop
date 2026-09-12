@@ -17,7 +17,9 @@ import re
 from typing import Any, Dict, List, Optional
 
 import requests
-from loguru import logger
+import logging
+
+_LOGGER = logging.getLogger(__name__)
 
 from .exceptions import ApiError, RequestFailed, TokenExpired
 from .models import Message, RotationResult, Student
@@ -72,7 +74,7 @@ class WebtopClient:
 
         if token and "%" in token:
             token = unquote(token)
-            logger.debug("URL-decoded the supplied token")
+            _LOGGER.debug("URL-decoded the supplied token")
         self._token = (token or "").strip()
         self._session.cookies.set("webToken", self._token, domain=".smartschool.co.il")
 
@@ -161,7 +163,7 @@ class WebtopClient:
         rotated = bool(after and after != before)
         if rotated:
             self._token = after
-            logger.info("Server rotated the webToken (sliding session confirmed)")
+            _LOGGER.info("Server rotated the webToken (sliding session confirmed)")
 
         # Note: do not split Set-Cookie on ',' - HTTP dates contain one
         # ("expires=Fri, 04 Sep 2026 ..."). Match the webToken attribute
@@ -232,16 +234,16 @@ class WebtopClient:
         )
         data = body.get("data") or {}
         if not isinstance(data, dict):
-            logger.warning(f"loginByBio returned {type(data).__name__}, expected an object")
+            _LOGGER.warning(f"loginByBio returned {type(data).__name__}, expected an object")
             return None
 
         token = data.get("token")
         if not token:
-            logger.warning(f"loginByBio succeeded but returned no token; keys={list(data)}")
+            _LOGGER.warning(f"loginByBio succeeded but returned no token; keys={list(data)}")
             return None
 
         self.set_token(token)
-        logger.info("loginByBio minted a fresh webToken")
+        _LOGGER.info("loginByBio minted a fresh webToken")
         return token
 
     def check_token(self) -> bool:
@@ -256,7 +258,7 @@ class WebtopClient:
         except TokenExpired:
             return False
         except ApiError as e:
-            logger.warning(f"CheckToken returned status=false: {e.error_description!r}")
+            _LOGGER.warning(f"CheckToken returned status=false: {e.error_description!r}")
             return False
 
     # ------------------------------------------------------------------
@@ -296,7 +298,7 @@ class WebtopClient:
                             entries = [e for e in value if isinstance(e, dict)]
                             break
                 else:
-                    logger.warning(
+                    _LOGGER.warning(
                         f"InitDashboard payload had no recognisable student list; keys={list(payload.keys())}"
                     )
 
@@ -331,7 +333,7 @@ class WebtopClient:
         data = body.get("data") or {}
         if isinstance(data, dict) and data.get("token"):
             self.set_token(data["token"])
-            logger.info("Session switched to another student; token updated")
+            _LOGGER.info("Session switched to another student; token updated")
         return data
 
     def get_homework(self, student: Student) -> Dict[str, Any]:
@@ -380,7 +382,7 @@ class WebtopClient:
         )
         data = body.get("data") or []
         if not isinstance(data, list):
-            logger.warning(
+            _LOGGER.warning(
                 f"GetMessagesInbox returned {type(data).__name__}, expected a list"
             )
             return []
@@ -401,7 +403,7 @@ class WebtopClient:
         try:
             self._session.close()
         except Exception as e:  # pragma: no cover - closing should never break a run
-            logger.debug(f"Error closing HTTP session: {e}")
+            _LOGGER.debug(f"Error closing HTTP session: {e}")
 
     def __enter__(self) -> "WebtopClient":
         return self
