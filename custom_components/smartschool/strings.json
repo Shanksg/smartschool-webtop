@@ -1,0 +1,20 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "SmartSchool credential",
+        "description": "Paste the values from the browser's loginByBio request (see the integration documentation for how to capture them).",
+        "data": {
+          "bio_login": "bioLogin id",
+          "unique_id": "uniqueId",
+          "selected_user": "selectedUser",
+          "device_id": "deviceId (usually empty)",
+          "is_mobile": "isMobile"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This SmartSchool account is already configured."
+    }
+  }
+}
