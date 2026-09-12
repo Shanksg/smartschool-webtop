@@ -1,0 +1,12 @@
+{
+  "domain": "smartschool",
+  "name": "SmartSchool (Webtop)",
+  "codeowners": ["@Shanksg"],
+  "config_flow": true,
+  "documentation": "https://github.com/Shanksg/smartschool-webtop",
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/Shanksg/smartschool-webtop/issues",
+  "requirements": ["requests>=2.32,<3"],
+  "version": "0.1.0"
+}
