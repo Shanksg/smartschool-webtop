@@ -124,6 +124,13 @@ class SmartSchoolCoordinator(DataUpdateCoordinator[SmartSchoolData]):
             self._client = None
             try:
                 return self._collect()
+            except TokenExpired as err:
+                # A freshly minted token was immediately rejected -> the
+                # credential/session is no longer valid; go to reauth rather
+                # than let a second TokenExpired escape to the coordinator.
+                raise ConfigEntryAuthFailed(
+                    "freshly minted token was rejected"
+                ) from err
             except (ApiError, RequestFailed) as err:
                 raise UpdateFailed(str(err)) from err
         except (ApiError, RequestFailed) as err:

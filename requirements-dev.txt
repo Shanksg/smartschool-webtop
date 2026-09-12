@@ -1,2 +1,6 @@
 -r requirements.txt
 pytest==8.3.4
+
+# Home Assistant test harness — enables the integration coordinator tests
+# (tests/test_coordinator.py). Skipped automatically if not installed.
+pytest-homeassistant-custom-component
