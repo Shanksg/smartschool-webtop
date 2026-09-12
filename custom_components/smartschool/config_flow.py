@@ -70,11 +70,15 @@ class SmartSchoolConfigFlow(ConfigFlow, domain=DOMAIN):
                 self._abort_if_unique_id_configured()
                 return self.async_create_entry(title="SmartSchool", data=cleaned)
 
-            # Re-show the form with what the user typed (minus the masked field).
+            # Re-show the form with what the user typed, but never suggest the
+            # masked bearer credential back into the UI - make them re-enter it.
+            suggested = {
+                k: v for k, v in user_input.items() if k != CONF_BIO_LOGIN
+            }
             return self.async_show_form(
                 step_id="user",
                 data_schema=self.add_suggested_values_to_schema(
-                    STEP_USER_SCHEMA, user_input
+                    STEP_USER_SCHEMA, suggested
                 ),
                 errors=errors,
             )
