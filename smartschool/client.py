@@ -153,6 +153,9 @@ class WebtopClient:
             body = resp.json()
         except (ValueError, json.JSONDecodeError):
             body = {}
+        if not isinstance(body, dict):
+            # A JSON array/scalar would crash body.get below; treat as no data.
+            body = {}
 
         after = self._current_cookie_token()
         rotated = bool(after and after != before)

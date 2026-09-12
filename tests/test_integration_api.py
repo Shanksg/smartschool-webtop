@@ -128,3 +128,10 @@ def test_vendored_login_by_bio_payload(monkeypatch):
 
 def test_vendored_client_tls_verify_on_by_default():
     assert client_mod.WebtopClient("t")._session.verify is True
+
+
+def test_vendored_refresh_token_tolerates_non_dict_body(monkeypatch):
+    """CheckBackgroundToken returning a JSON array/scalar must not crash."""
+    c = _client(monkeypatch, FakeResponse(200, [1, 2, 3]))
+    result = c.refresh_token()
+    assert result.ok is False and result.rotated is False

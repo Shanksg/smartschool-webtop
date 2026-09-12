@@ -96,8 +96,12 @@ class SmartSchoolCoordinator(DataUpdateCoordinator[SmartSchoolData]):
                 is_mobile=self._creds.is_mobile,
                 mode=self._creds.mode,
             )
-        except (ApiError, RequestFailed, TokenExpired) as err:
-            raise ConfigEntryAuthFailed(f"bioLogin renewal failed: {err}") from err
+        except (ApiError, TokenExpired) as err:
+            # The credential was rejected (status=false or 401) -> reauth.
+            raise ConfigEntryAuthFailed(f"bioLogin credential rejected: {err}") from err
+        # RequestFailed (timeout / transport / HTTP error) is transient and is
+        # left to propagate so the caller surfaces it as UpdateFailed, not a
+        # spurious reauthentication.
         if not token:
             raise ConfigEntryAuthFailed("bioLogin credential was rejected")
         _LOGGER.debug("Minted a fresh webToken via bioLogin")
@@ -109,21 +113,27 @@ class SmartSchoolCoordinator(DataUpdateCoordinator[SmartSchoolData]):
         return self._client
 
     def _fetch(self) -> SmartSchoolData:
-        client = self._ensure_client()
+        # ConfigEntryAuthFailed (bad credential) propagates untouched -> reauth.
+        # TokenExpired mid-cycle triggers one fresh-mint retry. Everything else
+        # (ApiError, RequestFailed incl. timeouts, and transport errors while
+        # minting) becomes a transient UpdateFailed.
         try:
-            students = client.get_students()
-            homework = {s.student_id: self._fetch_homework(client, s) for s in students}
-            messages = client.get_messages_inbox()
+            return self._collect()
         except TokenExpired:
-            # Token died mid-cycle - mint once and retry the whole pass.
-            self._client = self._mint_client()
-            client = self._client
-            students = client.get_students()
-            homework = {s.student_id: self._fetch_homework(client, s) for s in students}
-            messages = client.get_messages_inbox()
+            _LOGGER.debug("Token rejected mid-cycle; minting a fresh one and retrying")
+            self._client = None
+            try:
+                return self._collect()
+            except (ApiError, RequestFailed) as err:
+                raise UpdateFailed(str(err)) from err
         except (ApiError, RequestFailed) as err:
             raise UpdateFailed(str(err)) from err
 
+    def _collect(self) -> SmartSchoolData:
+        client = self._ensure_client()
+        students = client.get_students()
+        homework = {s.student_id: self._fetch_homework(client, s) for s in students}
+        messages = client.get_messages_inbox()
         return SmartSchoolData(students=students, homework=homework, messages=messages)
 
     def _fetch_homework(self, client: WebtopClient, student: Student) -> list[HomeworkItem]:
