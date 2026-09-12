@@ -13,6 +13,9 @@
         }
       }
     },
+    "error": {
+      "required": "This field is required."
+    },
     "abort": {
       "already_configured": "This SmartSchool account is already configured."
     }
