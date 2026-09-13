@@ -9,15 +9,15 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any
 
 from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from .api.models import HomeworkItem, Message, Student
 from .const import DOMAIN
@@ -27,7 +27,10 @@ INBOX_ID = "inbox"
 
 
 def _today() -> str:
-    return datetime.now().strftime("%Y-%m-%d")
+    # HA's configured timezone, not the host clock: a UTC container with a
+    # local timezone set would otherwise misclassify assignments around
+    # midnight as due yesterday/tomorrow.
+    return dt_util.now().strftime("%Y-%m-%d")
 
 
 # ---------------------------------------------------------------------------
@@ -160,14 +163,31 @@ async def async_setup_entry(
     """Set up SmartSchool sensors from a config entry."""
     coordinator: SmartSchoolCoordinator = hass.data[DOMAIN][entry.entry_id]
 
-    entities: list[SensorEntity] = []
-    for student in coordinator.data.students:
-        for desc in HOMEWORK_SENSORS:
-            entities.append(HomeworkSensor(coordinator, student, desc))
-    for desc in MESSAGE_SENSORS:
-        entities.append(MessageSensor(coordinator, desc))
+    # The inbox is account-level: one set per entry, added once.
+    async_add_entities(MessageSensor(coordinator, entry.entry_id, desc) for desc in MESSAGE_SENSORS)
 
-    async_add_entities(entities)
+    # Homework sensors are per student, and the roster is re-discovered on every
+    # coordinator update. Add sensors for students as they appear (including a
+    # student linked after setup) instead of only from the first snapshot.
+    known: set[str] = set()
+
+    @callback
+    def _add_new_students() -> None:
+        data = coordinator.data
+        if data is None:
+            return
+        new_entities: list[SensorEntity] = []
+        for student in data.students:
+            if student.student_id in known:
+                continue
+            known.add(student.student_id)
+            for desc in HOMEWORK_SENSORS:
+                new_entities.append(HomeworkSensor(coordinator, entry.entry_id, student, desc))
+        if new_entities:
+            async_add_entities(new_entities)
+
+    _add_new_students()
+    entry.async_on_unload(coordinator.async_add_listener(_add_new_students))
 
 
 class HomeworkSensor(CoordinatorEntity[SmartSchoolCoordinator], SensorEntity):
@@ -179,13 +199,16 @@ class HomeworkSensor(CoordinatorEntity[SmartSchoolCoordinator], SensorEntity):
     def __init__(
         self,
         coordinator: SmartSchoolCoordinator,
+        entry_id: str,
         student: Student,
         description: HomeworkSensorDescription,
     ) -> None:
         super().__init__(coordinator)
         self.entity_description = description
         self._student_id = student.student_id
-        dev = f"student_{self._student_id}"
+        # Scope ids by the config entry: two accounts must not share a device
+        # or collide in the entity registry, even for the same student id.
+        dev = f"{entry_id}_student_{self._student_id}"
         self._attr_unique_id = f"{dev}_{description.key}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, dev)},
@@ -230,13 +253,18 @@ class MessageSensor(CoordinatorEntity[SmartSchoolCoordinator], SensorEntity):
     def __init__(
         self,
         coordinator: SmartSchoolCoordinator,
+        entry_id: str,
         description: MessageSensorDescription,
     ) -> None:
         super().__init__(coordinator)
         self.entity_description = description
-        self._attr_unique_id = f"{INBOX_ID}_{description.key}"
+        # The inbox device/unique ids are otherwise constant across entries;
+        # scope them by the config entry so a second account cannot merge into
+        # or overwrite the first account's inbox.
+        dev = f"{entry_id}_{INBOX_ID}"
+        self._attr_unique_id = f"{dev}_{description.key}"
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, INBOX_ID)},
+            identifiers={(DOMAIN, dev)},
             name="SmartSchool - Messages",
             manufacturer="SmartSchool",
             model="Message Inbox",
