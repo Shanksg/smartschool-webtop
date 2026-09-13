@@ -230,3 +230,66 @@ def test_transient_while_minting_becomes_update_failed(monkeypatch):
     c = make_coord()  # c._client is None
     with pytest.raises(UpdateFailed):
         c._fetch()
+
+
+# ---------------------------------------------------------------- mint cleanup
+class _TrackingClient:
+    """login_by_bio behaviour is parametrised; records close()."""
+    instances = []
+
+    def __init__(self, *a, **k):
+        self.closed = False
+        self.token = ""
+        _TrackingClient.instances.append(self)
+
+    def login_by_bio(self, **kw):
+        if self._mode == "reject":
+            raise ApiError("status false")
+        if self._mode == "transient":
+            raise RequestFailed("timeout")
+        if self._mode == "none":
+            return None
+        self.token = "fresh"
+        return "fresh"
+
+    def close(self):
+        self.closed = True
+
+
+def _mint_with(monkeypatch, mode):
+    _TrackingClient.instances = []
+
+    def factory(*a, **k):
+        c = _TrackingClient()
+        c._mode = mode
+        return c
+
+    monkeypatch.setattr(coord_mod, "WebtopClient", factory)
+    return make_coord()
+
+
+def test_mint_closes_client_on_rejected_credential(monkeypatch):
+    c = _mint_with(monkeypatch, "reject")
+    with pytest.raises(ConfigEntryAuthFailed):
+        c._mint_client()
+    assert _TrackingClient.instances[0].closed is True
+
+
+def test_mint_closes_client_on_transient(monkeypatch):
+    c = _mint_with(monkeypatch, "transient")
+    with pytest.raises(RequestFailed):
+        c._mint_client()
+    assert _TrackingClient.instances[0].closed is True
+
+
+def test_mint_closes_client_on_missing_token(monkeypatch):
+    c = _mint_with(monkeypatch, "none")
+    with pytest.raises(ConfigEntryAuthFailed):
+        c._mint_client()
+    assert _TrackingClient.instances[0].closed is True
+
+
+def test_mint_does_not_close_on_success(monkeypatch):
+    c = _mint_with(monkeypatch, "ok")
+    client = c._mint_client()
+    assert client.closed is False and client.token == "fresh"

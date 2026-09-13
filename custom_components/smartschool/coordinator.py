@@ -87,23 +87,33 @@ class SmartSchoolCoordinator(DataUpdateCoordinator[SmartSchoolData]):
         or the server returns an immediately-invalid token.
         """
         client = WebtopClient("")
+        # Close the temporary client on any failure so a repeatedly-retried
+        # setup/auth cycle does not accumulate unclosed requests.Session
+        # objects. On success it is returned and owned by the coordinator.
         try:
-            token = client.login_by_bio(
-                bio_login=self._creds.bio_login,
-                device_id=self._creds.device_id,
-                selected_user=self._creds.selected_user,
-                unique_id=self._creds.unique_id,
-                is_mobile=self._creds.is_mobile,
-                mode=self._creds.mode,
-            )
-        except (ApiError, TokenExpired) as err:
-            # The credential was rejected (status=false or 401) -> reauth.
-            raise ConfigEntryAuthFailed(f"bioLogin credential rejected: {err}") from err
-        # RequestFailed (timeout / transport / HTTP error) is transient and is
-        # left to propagate so the caller surfaces it as UpdateFailed, not a
-        # spurious reauthentication.
-        if not token:
-            raise ConfigEntryAuthFailed("bioLogin credential was rejected")
+            try:
+                token = client.login_by_bio(
+                    bio_login=self._creds.bio_login,
+                    device_id=self._creds.device_id,
+                    selected_user=self._creds.selected_user,
+                    unique_id=self._creds.unique_id,
+                    is_mobile=self._creds.is_mobile,
+                    mode=self._creds.mode,
+                )
+            except (ApiError, TokenExpired) as err:
+                # The credential was rejected (status=false or 401) -> reauth.
+                raise ConfigEntryAuthFailed(
+                    f"bioLogin credential rejected: {err}"
+                ) from err
+            # RequestFailed (timeout / transport / HTTP error) is transient and
+            # propagates so the caller surfaces it as UpdateFailed, not a
+            # spurious reauthentication.
+            if not token:
+                raise ConfigEntryAuthFailed("bioLogin credential was rejected")
+        except BaseException:
+            client.close()
+            raise
+
         _LOGGER.debug("Minted a fresh webToken via bioLogin")
         return client
 
