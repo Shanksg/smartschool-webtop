@@ -249,7 +249,7 @@ Plus a `SmartSchool - Messages` device:
 ## Layout
 
 ```
-smartschool/
+smartschool/               standalone daemon (Docker / python3 run.py)
   client.py      Webtop API client (cookie auth, rotation, endpoint map)
   session.py     token load/save/rotate (hand-pasted vs cached)
   homework.py    extractors for both homework endpoint shapes
@@ -257,10 +257,20 @@ smartschool/
   notifiers.py   Apprise + Home Assistant MQTT
   monitor.py     scheduler daemon
   config.py      paths + settings
-tests/           168 offline tests, no network
+custom_components/smartschool/   Home Assistant integration (installable via HACS)
+  api/           the core above, vendored (stdlib logging, no loguru)
+  coordinator.py DataUpdateCoordinator (self-renewing auth, executor-wrapped)
+  sensor.py      native HA entities: per-student homework + inbox device
+  config_flow.py UI setup for the bioLogin credential
+tests/           220 offline tests, no network
 token_test.py    live token/API diagnostics
 bio_test.py      verifies the loginByBio renewal setup (see EXTRACT_BIO.md)
 ```
+
+Two ways to run it: the **standalone daemon** (Docker / `python3 run.py`,
+pushing to MQTT + Apprise), or the **Home Assistant integration** under
+`custom_components/` (native entities, UI setup). The integration is a
+work in progress; the standalone daemon is the stable path today.
 
 The endpoint map was derived from the SmartSchool web client, reimplemented
 synchronously and extended with token renewal and session keep-alive. Password
