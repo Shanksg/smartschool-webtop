@@ -135,3 +135,11 @@ def test_vendored_refresh_token_tolerates_non_dict_body(monkeypatch):
     c = _client(monkeypatch, FakeResponse(200, [1, 2, 3]))
     result = c.refresh_token()
     assert result.ok is False and result.rotated is False
+
+
+def test_vendored_dashboard_synthetic_date_stable_identity():
+    d1 = hw.from_dashboard({"dataTable": [{"lesson": "חשבון", "teacher": "T", "homeworkData": "p12"}]},
+                           default_date="2026-09-13")
+    d2 = hw.from_dashboard({"dataTable": [{"lesson": "חשבון", "teacher": "T", "homeworkData": "p12"}]},
+                           default_date="2026-09-14")
+    assert d1[0].date_is_synthetic and d1[0].identity() == d2[0].identity()

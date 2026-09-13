@@ -66,6 +66,10 @@ class HomeworkItem:
     date: str = ""
     teacher: str = ""
     description: str = ""
+    # True when `date` was synthesized (e.g. the dashboard fallback stamps
+    # today because its rows carry no date). Synthetic dates are excluded
+    # from identity() so the same assignment is not re-notified each day.
+    date_is_synthetic: bool = False
 
     def identity(self) -> str:
         """Stable key used to detect genuinely new homework."""
@@ -74,7 +78,9 @@ class HomeworkItem:
         parts = [
             (self.subject or "").strip(),
             (self.homework or "").strip(),
-            (self.date or "").strip()[:10],
+            # A synthetic (stamped-today) date must not enter the identity, or
+            # the same assignment gets a new key every day and re-notifies.
+            "" if self.date_is_synthetic else (self.date or "").strip()[:10],
         ]
         return hashlib.md5("|".join(parts).encode("utf-8")).hexdigest()
 

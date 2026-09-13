@@ -124,15 +124,25 @@ def from_dashboard(data: Any, *, default_date: str = "") -> List[HomeworkItem]:
                 return v
         return ""
 
-    def walk(node: Any, inherited_date: str = "", inherited_subject: str = "") -> None:
+    def walk(
+        node: Any,
+        inherited_date: str = "",
+        inherited_subject: str = "",
+        date_found: bool = False,
+    ) -> None:
         """Recurse, carrying context down from ancestors.
 
         The date usually sits on the enclosing day object while the homework
         text sits on a nested lesson, so a homework item has to inherit the
-        nearest date above it rather than only reading its own keys.
+        nearest date above it rather than only reading its own keys. Track
+        whether a *real* date was ever seen; if not, the item's date is the
+        synthetic default (today) and must be flagged as such so identity()
+        does not fold it in.
         """
         if isinstance(node, dict):
-            date = pick(node, date_keys) or inherited_date
+            own_date = pick(node, date_keys)
+            date = own_date or inherited_date
+            here_found = date_found or bool(own_date)
             subject = pick(node, subj_keys) or inherited_subject
 
             text = pick(node, hw_keys)
@@ -144,14 +154,15 @@ def from_dashboard(data: Any, *, default_date: str = "") -> List[HomeworkItem]:
                         teacher=pick(node, teacher_keys) or "Unknown",
                         homework=text,
                         description=pick(node, ("descClass", "description", "Description")),
+                        date_is_synthetic=not here_found,
                     )
                 )
             for value in node.values():
                 if isinstance(value, (dict, list)):
-                    walk(value, date, subject)
+                    walk(value, date, subject, here_found)
         elif isinstance(node, list):
             for entry in node:
-                walk(entry, inherited_date, inherited_subject)
+                walk(entry, inherited_date, inherited_subject, date_found)
 
     walk(data, default_date)
     if items:

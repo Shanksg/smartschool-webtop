@@ -32,5 +32,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
-        hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+        coordinator = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+        if coordinator is not None:
+            # The client owns its own requests.Session (connection pool); close
+            # it in the executor so a reload does not leak it.
+            await hass.async_add_executor_job(coordinator.async_shutdown_client)
     return unloaded

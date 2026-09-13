@@ -119,8 +119,19 @@ class SmartSchoolCoordinator(DataUpdateCoordinator[SmartSchoolData]):
 
     def _ensure_client(self) -> WebtopClient:
         if self._client is None or not self._client.check_token():
-            self._client = self._mint_client()
+            fresh = self._mint_client()
+            if self._client is not None and self._client is not fresh:
+                # Close the old session before dropping it, or renewals leak
+                # connection pools over time.
+                self._client.close()
+            self._client = fresh
         return self._client
+
+    def async_shutdown_client(self) -> None:
+        """Close the owned client's session. Called on entry unload."""
+        if self._client is not None:
+            self._client.close()
+            self._client = None
 
     def _fetch(self) -> SmartSchoolData:
         # ConfigEntryAuthFailed (bad credential) propagates untouched -> reauth.
@@ -149,8 +160,28 @@ class SmartSchoolCoordinator(DataUpdateCoordinator[SmartSchoolData]):
     def _collect(self) -> SmartSchoolData:
         client = self._ensure_client()
         students = client.get_students()
+        if not students:
+            # An unrecognised/empty InitDashboard payload (schema drift or a
+            # transient blip) must not be published as "no students", which
+            # would wipe every entity. Treat it as a transient failure so HA
+            # keeps the last good snapshot.
+            raise UpdateFailed("no students discovered (empty InitDashboard payload)")
+
         homework = {s.student_id: self._fetch_homework(client, s) for s in students}
-        messages = client.get_messages_inbox()
+
+        # The inbox is a bonus, not the job: an inbox outage must not discard
+        # the homework fetched just above. Keep the previous message snapshot.
+        try:
+            messages = client.get_messages_inbox()
+        except (ApiError, RequestFailed) as err:
+            previous = self.data.messages if self.data else []
+            _LOGGER.warning(
+                "Inbox fetch failed (%s); keeping the previous %d message(s)",
+                err,
+                len(previous),
+            )
+            messages = previous
+
         return SmartSchoolData(students=students, homework=homework, messages=messages)
 
     def _fetch_homework(self, client: WebtopClient, student: Student) -> list[HomeworkItem]:

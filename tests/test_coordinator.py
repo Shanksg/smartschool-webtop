@@ -293,3 +293,68 @@ def test_mint_does_not_close_on_success(monkeypatch):
     c = _mint_with(monkeypatch, "ok")
     client = c._mint_client()
     assert client.closed is False and client.token == "fresh"
+
+
+# ---------------------------------------------------------------- empty discovery (finding 5)
+def test_empty_student_list_is_update_failed():
+    c = make_coord()
+    c._client = FakeClient(students=[])
+    with pytest.raises(UpdateFailed):
+        c._fetch()
+
+
+# ---------------------------------------------------------------- inbox isolation (finding 4)
+def test_inbox_failure_keeps_homework_and_previous_messages():
+    c = make_coord()
+    # seed a previous snapshot with one message
+    prev_msg = object()
+    c.data = coord_mod.SmartSchoolData(students=[STUDENT], homework={}, messages=[prev_msg])
+    c._client = FakeClient(raise_on={"messages": RequestFailed("inbox down")})
+    data = c._fetch()
+    # homework still published
+    assert len(data.homework["stu-1"]) == 1
+    # previous messages retained, not wiped
+    assert data.messages == [prev_msg]
+
+
+def test_inbox_failure_with_no_previous_snapshot_yields_empty():
+    c = make_coord()
+    c.data = None
+    c._client = FakeClient(raise_on={"messages": ApiError("blip")})
+    data = c._fetch()
+    assert data.messages == [] and len(data.homework["stu-1"]) == 1
+
+
+# ---------------------------------------------------------------- client cleanup on renewal (finding 2)
+def test_ensure_client_closes_replaced_expired_client(monkeypatch):
+    c = make_coord()
+    old = FakeClient()
+    old.check_token = lambda: False   # force renewal
+    c._client = old
+    fresh = FakeClient()
+    monkeypatch.setattr(c, "_mint_client", lambda: fresh)
+    got = c._ensure_client()
+    assert got is fresh
+    assert old.closed is True, "the replaced expired client must be closed"
+
+
+def test_ensure_client_keeps_valid_client():
+    c = make_coord()
+    good = FakeClient()  # check_token() -> True
+    c._client = good
+    assert c._ensure_client() is good and good.closed is False
+
+
+# ---------------------------------------------------------------- shutdown hook (finding 1)
+def test_async_shutdown_client_closes_and_clears():
+    c = make_coord()
+    client = FakeClient()
+    c._client = client
+    c.async_shutdown_client()
+    assert client.closed is True and c._client is None
+
+
+def test_async_shutdown_client_noop_when_no_client():
+    c = make_coord()
+    c._client = None
+    c.async_shutdown_client()  # must not raise
