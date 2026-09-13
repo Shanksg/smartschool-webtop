@@ -18,7 +18,9 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List
 
-from loguru import logger
+import logging
+
+_LOGGER = logging.getLogger(__name__)
 
 from .models import HomeworkItem
 
@@ -166,7 +168,7 @@ def from_dashboard(data: Any, *, default_date: str = "") -> List[HomeworkItem]:
 
     walk(data, default_date)
     if items:
-        logger.debug(f"dashboard/GetHomeWork yielded {len(items)} homework item(s)")
+        _LOGGER.debug(f"dashboard/GetHomeWork yielded {len(items)} homework item(s)")
     return items
 
 

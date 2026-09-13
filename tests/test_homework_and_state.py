@@ -240,3 +240,28 @@ def test_dashboard_stamps_today_when_no_default_given():
 def test_dashboard_empty_when_no_homework_anywhere():
     payload = {"dataTable": [{"lesson": "שפה", "homeworkData": "", "teacher": "x"}]}
     assert from_dashboard(payload) == []
+
+
+# ----------------------------------------------------------------------
+# synthetic (dashboard-stamped) date must not re-notify across days
+# ----------------------------------------------------------------------
+def test_dashboard_synthetic_date_identity_stable_across_days():
+    d1 = from_dashboard({"dataTable": [{"lesson": "חשבון", "teacher": "T", "homeworkData": "עמוד 12"}]},
+                        default_date="2026-09-13")
+    d2 = from_dashboard({"dataTable": [{"lesson": "חשבון", "teacher": "T", "homeworkData": "עמוד 12"}]},
+                        default_date="2026-09-14")
+    assert d1[0].date_is_synthetic and d2[0].date_is_synthetic
+    assert d1[0].identity() == d2[0].identity()
+
+
+def test_dashboard_real_date_is_not_synthetic():
+    items = from_dashboard({"days": [{"date": "2026-09-13", "lessons": [
+        {"subject": "מדעים", "homework": "x"}]}]})
+    assert items[0].date_is_synthetic is False
+    assert items[0].date == "2026-09-13"
+
+
+def test_pupilcard_date_is_not_synthetic():
+    items = from_pupilcard([{"date": "2026-09-13T00:00:00", "hoursData": [{"scheduale": [
+        {"subject_name": "מתמטיקה", "teacher": "T", "homeWork": "עמוד 45"}]}]}])
+    assert items[0].date_is_synthetic is False

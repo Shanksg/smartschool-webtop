@@ -366,3 +366,10 @@ def test_expired_client_is_dropped_so_a_new_paste_is_picked_up(tmp_path: Path, m
     (paths.config_dir / "token.txt").write_text("T2", encoding="utf-8")
     assert monitor.connect() is True
     assert monitor.client.token == "T2", "new paste must be picked up without a restart"
+
+
+def test_refresh_token_tolerates_non_dict_body(monkeypatch):
+    """CheckBackgroundToken returning a non-dict JSON must not crash body.get."""
+    client = make_client(monkeypatch, FakeResponse(200, [1, 2, 3]))
+    result = client.refresh_token()
+    assert result.ok is False and result.rotated is False
