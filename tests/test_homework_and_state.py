@@ -265,3 +265,18 @@ def test_pupilcard_date_is_not_synthetic():
     items = from_pupilcard([{"date": "2026-09-13T00:00:00", "hoursData": [{"scheduale": [
         {"subject_name": "מתמטיקה", "teacher": "T", "homeWork": "עמוד 45"}]}]}])
     assert items[0].date_is_synthetic is False
+
+
+def test_extract_forwards_default_date_to_dashboard():
+    body = {"data": {"dataTable": [{"lesson": "חשבון", "teacher": "T", "homeworkData": "p12"}]}}
+    items = extract(body, source="dashboard", default_date="2026-01-15")
+    assert items[0].date == "2026-01-15" and items[0].date_is_synthetic
+
+
+def test_extract_default_date_ignored_by_pupilcard():
+    # PupilCard rows carry real dates; default_date must not override them.
+    items = extract(
+        {"data": PUPILCARD_DATA}, source="pupilcard", default_date="2026-01-15"
+    )
+    assert items[0].date == "2026-09-03T00:00:00"
+    assert items[0].date_is_synthetic is False

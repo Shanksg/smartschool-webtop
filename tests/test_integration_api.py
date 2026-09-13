@@ -143,3 +143,9 @@ def test_vendored_dashboard_synthetic_date_stable_identity():
     d2 = hw.from_dashboard({"dataTable": [{"lesson": "חשבון", "teacher": "T", "homeworkData": "p12"}]},
                            default_date="2026-09-14")
     assert d1[0].date_is_synthetic and d1[0].identity() == d2[0].identity()
+
+
+def test_vendored_extract_forwards_default_date():
+    body = {"data": {"dataTable": [{"lesson": "חשבון", "teacher": "T", "homeworkData": "p12"}]}}
+    items = hw.extract(body, source="dashboard", default_date="2026-01-15")
+    assert items[0].date == "2026-01-15" and items[0].date_is_synthetic

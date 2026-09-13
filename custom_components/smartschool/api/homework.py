@@ -172,11 +172,18 @@ def from_dashboard(data: Any, *, default_date: str = "") -> List[HomeworkItem]:
     return items
 
 
-def extract(body: Dict[str, Any], *, source: str) -> List[HomeworkItem]:
-    """Extract homework from a full API envelope for the named source."""
+def extract(
+    body: Dict[str, Any], *, source: str, default_date: str = ""
+) -> List[HomeworkItem]:
+    """Extract homework from a full API envelope for the named source.
+
+    `default_date` is the date to stamp on dateless dashboard rows. Pass the
+    caller's notion of "today" (e.g. derived from Home Assistant's timezone) so
+    the synthetic date agrees with however "today" is computed downstream.
+    """
     data = body.get("data") if isinstance(body, dict) else None
     if source == "pupilcard":
         return from_pupilcard(data)
     if source == "dashboard":
-        return from_dashboard(data)
+        return from_dashboard(data, default_date=default_date)
     raise ValueError(f"Unknown homework source: {source!r}")

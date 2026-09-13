@@ -16,6 +16,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .api.bio import BioCredentials
 from .api.client import WebtopClient
@@ -201,7 +202,10 @@ class SmartSchoolCoordinator(DataUpdateCoordinator[SmartSchoolData]):
             except (ApiError, RequestFailed) as err:
                 last_error = err
                 continue
-            return extract(body, source=source)
+            # Stamp dateless dashboard rows with "today" in HA's timezone, so
+            # the synthetic date matches how the sensors compute "today".
+            today = dt_util.now().strftime("%Y-%m-%d")
+            return extract(body, source=source, default_date=today)
 
         if last_error:
             raise UpdateFailed(f"all homework sources failed: {last_error}")

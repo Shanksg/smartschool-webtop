@@ -262,7 +262,7 @@ custom_components/smartschool/   Home Assistant integration (installable via HAC
   coordinator.py DataUpdateCoordinator (self-renewing auth, executor-wrapped)
   sensor.py      native HA entities: per-student homework + inbox device
   config_flow.py UI setup for the bioLogin credential
-tests/           223 offline tests, no network
+tests/           227 offline tests, no network
 token_test.py    live token/API diagnostics
 bio_test.py      verifies the loginByBio renewal setup (see EXTRACT_BIO.md)
 ```
