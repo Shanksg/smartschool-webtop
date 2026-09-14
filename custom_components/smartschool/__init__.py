@@ -1,19 +1,19 @@
 """The SmartSchool (Webtop) integration.
 
-Phase 2: a data-update coordinator that mints its own token via bioLogin and
-fetches homework + messages. Entities (the sensor platform) arrive in Phase 3.
+A data-update coordinator mints its own token via bioLogin and fetches homework
++ messages; the sensor platform exposes them as native Home Assistant entities.
 """
 
 from __future__ import annotations
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
 from .coordinator import SmartSchoolCoordinator
 
-# Sensor platform is forwarded in Phase 3.
-PLATFORMS: list[str] = []
+PLATFORMS: list[Platform] = [Platform.SENSOR]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

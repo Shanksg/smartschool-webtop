@@ -16,6 +16,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .api.bio import BioCredentials
 from .api.client import WebtopClient
@@ -47,10 +48,15 @@ class SmartSchoolData:
         students: list[Student],
         homework: dict[str, list[HomeworkItem]],
         messages: list[Message],
+        full_window: dict[str, bool] | None = None,
     ) -> None:
         self.students = students
         self.homework = homework  # keyed by student_id
         self.messages = messages
+        # Per student: True if the homework is the full multi-day PupilCard
+        # window, False if it came from the today-only dashboard fallback.
+        # Window-dependent sensors report "unknown" when this is False.
+        self.full_window = full_window or {}
 
 
 class SmartSchoolCoordinator(DataUpdateCoordinator[SmartSchoolData]):
@@ -167,7 +173,12 @@ class SmartSchoolCoordinator(DataUpdateCoordinator[SmartSchoolData]):
             # keeps the last good snapshot.
             raise UpdateFailed("no students discovered (empty InitDashboard payload)")
 
-        homework = {s.student_id: self._fetch_homework(client, s) for s in students}
+        homework: dict[str, list[HomeworkItem]] = {}
+        full_window: dict[str, bool] = {}
+        for s in students:
+            items, is_full = self._fetch_homework(client, s)
+            homework[s.student_id] = items
+            full_window[s.student_id] = is_full
 
         # The inbox is a bonus, not the job: an inbox outage must not discard
         # the homework fetched just above. Keep the previous message snapshot.
@@ -182,10 +193,21 @@ class SmartSchoolCoordinator(DataUpdateCoordinator[SmartSchoolData]):
             )
             messages = previous
 
-        return SmartSchoolData(students=students, homework=homework, messages=messages)
+        return SmartSchoolData(
+            students=students,
+            homework=homework,
+            messages=messages,
+            full_window=full_window,
+        )
 
-    def _fetch_homework(self, client: WebtopClient, student: Student) -> list[HomeworkItem]:
-        """Try each homework source; a genuine outage propagates as UpdateFailed."""
+    def _fetch_homework(
+        self, client: WebtopClient, student: Student
+    ) -> tuple[list[HomeworkItem], bool]:
+        """Try each homework source; a genuine outage propagates as UpdateFailed.
+
+        Returns the items and whether they are a full multi-day window
+        (PupilCard) rather than the today-only dashboard fallback.
+        """
         last_error: Exception | None = None
         for source in _HOMEWORK_SOURCES:
             try:
@@ -201,11 +223,17 @@ class SmartSchoolCoordinator(DataUpdateCoordinator[SmartSchoolData]):
             except (ApiError, RequestFailed) as err:
                 last_error = err
                 continue
-            return extract(body, source=source)
+            # Stamp dateless dashboard rows with "today" in HA's timezone, so
+            # the synthetic date matches how the sensors compute "today".
+            today = dt_util.now().strftime("%Y-%m-%d")
+            items = extract(body, source=source, default_date=today)
+            return items, source == "pupilcard"
 
         if last_error:
             raise UpdateFailed(f"all homework sources failed: {last_error}")
-        return []
+        # No source produced data and none errored (e.g. no PupilCard params and
+        # an empty dashboard): an empty full window, not a partial one.
+        return [], True
 
     @staticmethod
     def _pupilcard_params(student: Student) -> dict[str, Any] | None:
