@@ -221,10 +221,16 @@ Notable details:
 
 ## Home Assistant entities
 
-Setup details, automations and a dashboard card are in
-[`HOME_ASSISTANT_SETUP.md`](HOME_ASSISTANT_SETUP.md).
+There are two ways to get these entities, matching the two run paths. Pick one —
+they publish overlapping sensors and running both duplicates them.
 
-Per student, via MQTT discovery:
+### Standalone daemon — via MQTT discovery
+
+Run the daemon (`python3 run.py` / Docker) with `MQTT_*` set, and it publishes
+the sensors below over MQTT discovery. Setup details, automations and a
+dashboard card are in [`HOME_ASSISTANT_SETUP.md`](HOME_ASSISTANT_SETUP.md).
+
+Per student:
 
 | Sensor | Meaning |
 |---|---|
@@ -246,6 +252,49 @@ Plus a `SmartSchool - Messages` device:
 | Messages Details | rendered list, `*` marks unread |
 | Messages Last Check | timestamp of the last inbox poll |
 
+### Home Assistant integration — native entities (no MQTT)
+
+The integration under `custom_components/smartschool/` produces the same sensors
+as native entities, set up through the UI, with the coordinator renewing its own
+token via `bioLogin`. No MQTT broker required.
+
+**Install (manual copy for now).** HACS custom-repository install lands in a
+later phase (it needs `hacs.json` + a tagged release); until then, copy the
+folder into your HA config:
+
+```bash
+# from a checkout of this repo, into your Home Assistant config directory
+cp -r custom_components/smartschool <HA_CONFIG>/custom_components/smartschool
+```
+
+Then restart Home Assistant.
+
+**Configure.** Settings → Devices & Services → **Add Integration** →
+*SmartSchool*. The config flow asks for the values from the browser's
+`loginByBio` request — capture them once as described in
+[EXTRACT_BIO.md](EXTRACT_BIO.md):
+
+| Field | Notes |
+|---|---|
+| bioLogin id | the `bioLogin` credential blob |
+| uniqueId | device unique id from the same request |
+| selectedUser | selected user id (optional) |
+| deviceId | usually empty |
+| isMobile | leave on |
+
+Entities created:
+
+- **Per student** (device `SmartSchool - <name>`): Homework Count (due today),
+  Homework This Week, Homework Upcoming, Homework Details.
+- **Inbox** (device `SmartSchool - Messages`): Messages Unread, Total, Latest,
+  Details.
+
+`Homework Details` shows today's items when any are due and falls back to the
+whole visible week only when nothing is due today — the same contract as the
+MQTT path. When the preferred PupilCard endpoint is unavailable and the
+integration falls back to the today-only dashboard, `This Week` and `Upcoming`
+report **unknown** rather than a misleadingly small number.
+
 ## Layout
 
 ```
@@ -262,7 +311,7 @@ custom_components/smartschool/   Home Assistant integration (installable via HAC
   coordinator.py DataUpdateCoordinator (self-renewing auth, executor-wrapped)
   sensor.py      native HA entities: per-student homework + inbox device
   config_flow.py UI setup for the bioLogin credential
-tests/           227 offline tests, no network
+tests/           234 offline tests, no network
 token_test.py    live token/API diagnostics
 bio_test.py      verifies the loginByBio renewal setup (see EXTRACT_BIO.md)
 ```

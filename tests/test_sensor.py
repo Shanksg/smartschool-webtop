@@ -42,13 +42,14 @@ class StubCoordinator:
         return lambda: None
 
 
-def _data(homework=None, messages=None, students=None):
+def _data(homework=None, messages=None, students=None, full_window=None):
     stu = Student(student_id="s1", name="דני", class_code=4)
     return StubCoordinator(
         SmartSchoolData(
             students=students if students is not None else [stu],
             homework=homework if homework is not None else {"s1": []},
             messages=messages if messages is not None else [],
+            full_window=full_window,
         )
     ), stu
 
@@ -88,6 +89,56 @@ def test_homework_details_empty():
     e = _hw(coord, stu, "details")
     assert e.native_value == "0 today / 0 this week"
     assert e.extra_state_attributes["text"] == "No homework"
+
+
+def test_homework_details_today_first_when_items_due_today():
+    items = [
+        HomeworkItem(subject="מתמטיקה", homework="due today", date=TODAY),
+        HomeworkItem(subject="אנגלית", homework="last week", date="2026-09-01"),
+    ]
+    coord, stu = _data(homework={"s1": items})
+    text = _hw(coord, stu, "details").extra_state_attributes["text"]
+    assert text.startswith("Today's homework:")
+    assert "due today" in text
+    assert "last week" not in text, "week items are hidden when today has homework"
+
+
+def test_homework_details_falls_back_to_week_when_nothing_due_today():
+    items = [HomeworkItem(subject="אנגלית", homework="later this week", date="2026-09-01")]
+    coord, stu = _data(homework={"s1": items})  # full window (default)
+    text = _hw(coord, stu, "details").extra_state_attributes["text"]
+    assert text.startswith("No homework today. This week:")
+    assert "later this week" in text
+
+
+# ---------------------------------------------------------------- today-only fallback (partial window)
+def test_partial_window_marks_week_and_upcoming_unknown():
+    items = [HomeworkItem(subject="חשבון", homework="today only", date=TODAY)]
+    coord, stu = _data(homework={"s1": items}, full_window={"s1": False})
+    assert _hw(coord, stu, "count").native_value == 1, "today is valid from either source"
+    assert _hw(coord, stu, "count_week").native_value is None, "week unknown on fallback"
+    assert _hw(coord, stu, "count_upcoming").native_value is None, "upcoming unknown on fallback"
+
+
+def test_partial_window_details_state_omits_week():
+    items = [HomeworkItem(subject="חשבון", homework="today only", date=TODAY)]
+    coord, stu = _data(homework={"s1": items}, full_window={"s1": False})
+    e = _hw(coord, stu, "details")
+    assert e.native_value == "1 today", "no 'this week' claim during fallback"
+
+
+def test_partial_window_details_text_no_week_claim_when_today_empty():
+    items = [HomeworkItem(subject="חשבון", homework="x", date="2026-09-01")]
+    coord, stu = _data(homework={"s1": items}, full_window={"s1": False})
+    text = _hw(coord, stu, "details").extra_state_attributes["text"]
+    assert "this-week view unavailable" in text
+    assert "x" not in text, "must not render a partial week as if complete"
+
+
+def test_full_window_default_true_when_unspecified():
+    items = [HomeworkItem(subject="חשבון", homework="x", date="2026-09-01")]
+    coord, stu = _data(homework={"s1": items})  # full_window omitted
+    assert _hw(coord, stu, "count_week").native_value == 1
 
 
 def test_homework_device_and_unique_id_scoped_by_entry():

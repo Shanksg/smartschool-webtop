@@ -380,7 +380,22 @@ def test_fetch_homework_stamps_synthetic_date_in_ha_timezone(monkeypatch):
     fixed = _dt.datetime(2026, 1, 15, 23, 30)
     monkeypatch.setattr(coord_mod.dt_util, "now", lambda: fixed)
 
-    items = c._fetch_homework(fake, STUDENT)
+    items, full = c._fetch_homework(fake, STUDENT)
     assert len(items) == 1
     assert items[0].date == "2026-01-15", "synthetic date must come from HA's clock"
     assert items[0].date_is_synthetic is True
+    assert full is False, "dashboard fallback is a partial (today-only) window"
+
+
+def test_collect_marks_pupilcard_full_and_dashboard_partial():
+    # PupilCard succeeds -> full window.
+    c = make_coord()
+    c._client = FakeClient()
+    data = c._fetch()
+    assert data.full_window["stu-1"] is True
+
+    # PupilCard fails -> dashboard fallback -> partial window.
+    c2 = make_coord()
+    c2._client = FakeClient(raise_on={"pupilcard": ApiError("view is blocked")})
+    data2 = c2._fetch()
+    assert data2.full_window["stu-1"] is False

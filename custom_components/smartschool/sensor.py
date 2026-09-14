@@ -38,21 +38,51 @@ def _today() -> str:
 # ---------------------------------------------------------------------------
 @dataclass(frozen=True, kw_only=True)
 class HomeworkSensorDescription(SensorEntityDescription):
-    """Describes a per-student homework sensor."""
+    """Describes a per-student homework sensor.
 
-    value_fn: Callable[[list[HomeworkItem]], Any]
-    attrs_fn: Callable[[list[HomeworkItem]], dict[str, Any]] | None = None
+    `full_window` is True when the snapshot is the full multi-day PupilCard
+    window, False when it is the today-only dashboard fallback. Window-dependent
+    values return None (state "unknown") during the fallback rather than
+    under-reporting the week as if it were complete.
+    """
+
+    value_fn: Callable[[list[HomeworkItem], bool], Any]
+    attrs_fn: Callable[[list[HomeworkItem], bool], dict[str, Any]] | None = None
 
 
-def _render_homework(items: list[HomeworkItem]) -> str:
-    if not items:
-        return "No homework"
-    lines: list[str] = []
+def _today_items(items: list[HomeworkItem]) -> list[HomeworkItem]:
+    today = _today()
+    return [h for h in items if (h.date or "")[:10] == today]
+
+
+def _render_list(items: list[HomeworkItem], header: str) -> str:
+    lines = [header]
     for hw in sorted(items, key=lambda h: (h.date or "", h.subject or "")):
         date = (hw.date or "")[:10]
         lines.append(f"{hw.subject} ({date}) - {hw.teacher}")
         lines.append(f"  {hw.homework}")
     return "\n".join(lines)
+
+
+def _render_homework(items: list[HomeworkItem], full_window: bool) -> str:
+    # Today-first, matching the standalone contract: show today's items when any
+    # are due, and fall back to the whole visible window only when nothing is
+    # due today - and only when we actually have the full window.
+    todays = _today_items(items)
+    if todays:
+        return _render_list(todays, "Today's homework:")
+    if full_window and items:
+        return _render_list(items, "No homework today. This week:")
+    if not full_window:
+        return "No homework today (this-week view unavailable)"
+    return "No homework"
+
+
+def _details_state(items: list[HomeworkItem], full_window: bool) -> str:
+    today = len(_today_items(items))
+    if full_window:
+        return f"{today} today / {len(items)} this week"
+    return f"{today} today"
 
 
 HOMEWORK_SENSORS: tuple[HomeworkSensorDescription, ...] = (
@@ -61,32 +91,33 @@ HOMEWORK_SENSORS: tuple[HomeworkSensorDescription, ...] = (
         name="Homework Count",
         icon="mdi:book-open-variant",
         native_unit_of_measurement="items",
-        value_fn=lambda items: sum(1 for h in items if (h.date or "")[:10] == _today()),
+        # Today's count is valid from either source.
+        value_fn=lambda items, full: len(_today_items(items)),
     ),
     HomeworkSensorDescription(
         key="count_week",
         name="Homework This Week",
         icon="mdi:calendar-week",
         native_unit_of_measurement="items",
-        value_fn=lambda items: len(items),
+        # The dashboard fallback only has today, so the week is unknown then.
+        value_fn=lambda items, full: len(items) if full else None,
     ),
     HomeworkSensorDescription(
         key="count_upcoming",
         name="Homework Upcoming",
         icon="mdi:calendar-arrow-right",
         native_unit_of_measurement="items",
-        value_fn=lambda items: sum(1 for h in items if (h.date or "")[:10] >= _today()),
+        value_fn=lambda items, full: (
+            sum(1 for h in items if (h.date or "")[:10] >= _today()) if full else None
+        ),
     ),
     HomeworkSensorDescription(
         key="details",
         name="Homework Details",
         icon="mdi:text-box-multiple",
         # State stays short (HA caps it at 255); the full list is an attribute.
-        value_fn=lambda items: (
-            f"{sum(1 for h in items if (h.date or '')[:10] == _today())} today"
-            f" / {len(items)} this week"
-        ),
-        attrs_fn=lambda items: {"text": _render_homework(items)},
+        value_fn=_details_state,
+        attrs_fn=lambda items, full: {"text": _render_homework(items, full)},
     ),
 )
 
@@ -223,15 +254,22 @@ class HomeworkSensor(CoordinatorEntity[SmartSchoolCoordinator], SensorEntity):
             return []
         return data.homework.get(self._student_id, [])
 
+    def _full_window(self) -> bool:
+        data: SmartSchoolData | None = self.coordinator.data
+        if not data:
+            return True
+        # Default True: an unknown provenance is treated as a complete window.
+        return data.full_window.get(self._student_id, True)
+
     @property
     def native_value(self) -> Any:
-        return self.entity_description.value_fn(self._items())
+        return self.entity_description.value_fn(self._items(), self._full_window())
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
         if self.entity_description.attrs_fn is None:
             return None
-        return self.entity_description.attrs_fn(self._items())
+        return self.entity_description.attrs_fn(self._items(), self._full_window())
 
     @property
     def available(self) -> bool:
