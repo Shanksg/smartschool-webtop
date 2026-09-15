@@ -87,7 +87,12 @@ class SmartSchoolCoordinator(DataUpdateCoordinator[SmartSchoolData]):
         """Fetch homework and messages (all blocking work in the executor)."""
         data = await self.hass.async_add_executor_job(self._fetch)
         # Event bus calls belong on the event loop, after the fetch succeeds.
-        self._events.async_process(data)
+        try:
+            self._events.async_process(data)
+        except Exception:
+            # Events must not discard good sensor data. Exception text and
+            # tracebacks may contain school content, so keep this log generic.
+            _LOGGER.warning("Event publishing failed; keeping successfully fetched data")
         return data
 
     # ------------------------------------------------------------------

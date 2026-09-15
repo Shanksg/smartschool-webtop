@@ -111,3 +111,26 @@ def test_events_run_after_executor_returns_and_failed_fetch_does_not_advance(tra
     coordinator.hass.async_add_executor_job.return_value = snapshot([HomeworkItem("Math", "New")])
     asyncio.run(coordinator._async_update_data())
     assert tracker.hass.bus.async_fire.call_count == 1
+
+
+@pytest.mark.parametrize("kind", ["homework", "messages"])
+def test_publish_failure_keeps_data_and_retries_only_unpublished_items(tracker, caplog, kind):
+    tracker.async_process(snapshot())
+    items = ([HomeworkItem("Math", "First"), HomeworkItem("Math", "Second")]
+             if kind == "homework" else [Message("First"), Message("Second")])
+    data = snapshot(**{kind: items})
+    coordinator = SmartSchoolCoordinator.__new__(SmartSchoolCoordinator)
+    coordinator._events = tracker
+    coordinator.hass = SimpleNamespace(async_add_executor_job=AsyncMock(return_value=data))
+    tracker.hass.bus.async_fire.side_effect = [None, RuntimeError("private-content-sentinel")]
+
+    assert asyncio.run(coordinator._async_update_data()) is data
+    assert "Event publishing failed" in caplog.text
+    assert "private-content-sentinel" not in caplog.text
+
+    tracker.hass.bus.async_fire.reset_mock(side_effect=True)
+    assert asyncio.run(coordinator._async_update_data()) is data
+    tracker.hass.bus.async_fire.assert_called_once()
+    assert tracker.hass.bus.async_fire.call_args.args[1]["item_id"] == items[1].identity()
+    asyncio.run(coordinator._async_update_data())
+    tracker.hass.bus.async_fire.assert_called_once()

@@ -43,7 +43,6 @@ class SmartSchoolEvents:
                 key = item.identity()
                 if key in seen:
                     continue
-                seen.add(key)
                 if notify:
                     self._fire(
                         EVENT_NEW_HOMEWORK,
@@ -56,6 +55,9 @@ class SmartSchoolEvents:
                             "date_is_synthetic": item.date_is_synthetic,
                         },
                     )
+                # Keep successfully published items, but retry a failed item
+                # on a later poll if it is still present.
+                seen.add(key)
 
         # Retained data from a failed inbox request is not a baseline. The
         # first real inbox response must be silent even after earlier outages.
@@ -68,13 +70,13 @@ class SmartSchoolEvents:
             key = message.identity()
             if key in self._messages:
                 continue
-            self._messages.add(key)
             if notify:
                 self._fire(
                     EVENT_NEW_MESSAGE,
                     f"{self.entry_id}_inbox",
                     {"item_id": key, **message.as_dict()},
                 )
+            self._messages.add(key)
 
     @callback
     def _fire(self, event_type: str, identifier: str, payload: dict) -> None:
