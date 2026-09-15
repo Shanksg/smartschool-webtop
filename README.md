@@ -295,6 +295,36 @@ MQTT path. When the preferred PupilCard endpoint is unavailable and the
 integration falls back to the today-only dashboard, `This Week` and `Upcoming`
 report **unknown** rather than a misleadingly small number.
 
+### Automation events
+
+The integration fires `smartschool_new_homework` and `smartschool_new_message`
+when a successful poll discovers a new item. These events are available for
+HA event-triggered automations; they do not send notifications by themselves.
+Live verification of events is pending.
+
+Both payloads include `entry_id`, `item_id`, and `device_id` when the device is
+registered. Filter by `entry_id` to target one configured account.
+
+- Homework: `student_id`, `student_name`, `subject`, `homework`, `date`,
+  `teacher`, `description`, and `date_is_synthetic`.
+- Message: `subject`, `sender`, `sent_at`, `has_read`, and `has_files`.
+
+The first successful snapshot of each student and inbox is silent. Subsequent
+polls emit each identity once per integration load, even if an item disappears
+and returns. Marking a message read does not emit another event. Identical
+homework entries produce one event while remaining separate sensor entries.
+
+Switching between PupilCard and the today-only fallback silently seeds the
+homework snapshot because their date identities differ. New work first seen
+on that transition is also silent. Failed inbox requests do not establish an
+inbox baseline.
+
+History is currently in memory. Restarting or reloading silently establishes a
+new baseline, so items arriving while HA is offline will not emit events at
+startup. Persistent history is planned for Phase 7. Event payloads contain
+school content for local automations; credentials and raw API responses are
+excluded.
+
 ## Layout
 
 ```

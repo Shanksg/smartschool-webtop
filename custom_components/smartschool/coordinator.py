@@ -31,6 +31,7 @@ from .const import (
     CONF_UNIQUE_ID,
     DOMAIN,
 )
+from .events import SmartSchoolEvents
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -49,10 +50,12 @@ class SmartSchoolData:
         homework: dict[str, list[HomeworkItem]],
         messages: list[Message],
         full_window: dict[str, bool] | None = None,
+        messages_fresh: bool = True,
     ) -> None:
         self.students = students
         self.homework = homework  # keyed by student_id
         self.messages = messages
+        self.messages_fresh = messages_fresh
         # Per student: True if the homework is the full multi-day PupilCard
         # window, False if it came from the today-only dashboard fallback.
         # Window-dependent sensors report "unknown" when this is False.
@@ -78,10 +81,14 @@ class SmartSchoolCoordinator(DataUpdateCoordinator[SmartSchoolData]):
             is_mobile=entry.data.get(CONF_IS_MOBILE, True),
         )
         self._client: WebtopClient | None = None
+        self._events = SmartSchoolEvents(hass, entry.entry_id)
 
     async def _async_update_data(self) -> SmartSchoolData:
         """Fetch homework and messages (all blocking work in the executor)."""
-        return await self.hass.async_add_executor_job(self._fetch)
+        data = await self.hass.async_add_executor_job(self._fetch)
+        # Event bus calls belong on the event loop, after the fetch succeeds.
+        self._events.async_process(data)
+        return data
 
     # ------------------------------------------------------------------
     # everything below runs in a worker thread
@@ -182,9 +189,11 @@ class SmartSchoolCoordinator(DataUpdateCoordinator[SmartSchoolData]):
 
         # The inbox is a bonus, not the job: an inbox outage must not discard
         # the homework fetched just above. Keep the previous message snapshot.
+        messages_fresh = True
         try:
             messages = client.get_messages_inbox()
         except (ApiError, RequestFailed) as err:
+            messages_fresh = False
             previous = self.data.messages if self.data else []
             _LOGGER.warning(
                 "Inbox fetch failed (%s); keeping the previous %d message(s)",
@@ -198,6 +207,7 @@ class SmartSchoolCoordinator(DataUpdateCoordinator[SmartSchoolData]):
             homework=homework,
             messages=messages,
             full_window=full_window,
+            messages_fresh=messages_fresh,
         )
 
     def _fetch_homework(

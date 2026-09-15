@@ -315,6 +315,7 @@ def test_inbox_failure_keeps_homework_and_previous_messages():
     assert len(data.homework["stu-1"]) == 1
     # previous messages retained, not wiped
     assert data.messages == [prev_msg]
+    assert data.messages_fresh is False
 
 
 def test_inbox_failure_with_no_previous_snapshot_yields_empty():
@@ -323,6 +324,7 @@ def test_inbox_failure_with_no_previous_snapshot_yields_empty():
     c._client = FakeClient(raise_on={"messages": ApiError("blip")})
     data = c._fetch()
     assert data.messages == [] and len(data.homework["stu-1"]) == 1
+    assert data.messages_fresh is False
 
 
 # ---------------------------------------------------------------- client cleanup on renewal (finding 2)
