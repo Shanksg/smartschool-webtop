@@ -257,8 +257,8 @@ class WebtopClient:
             return True
         except TokenExpired:
             return False
-        except ApiError as e:
-            _LOGGER.warning(f"CheckToken returned status=false: {e.error_description!r}")
+        except ApiError:
+            _LOGGER.warning("CheckToken returned status=false")
             return False
 
     # ------------------------------------------------------------------

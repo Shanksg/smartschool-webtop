@@ -11,13 +11,30 @@
           "device_id": "deviceId (usually empty)",
           "is_mobile": "isMobile"
         }
+      },
+      "reauth_confirm": {
+        "title": "Reconnect SmartSchool",
+        "description": "Your saved credential is no longer accepted. Paste fresh loginByBio values for the same SmartSchool account. Your existing integration and entities will be kept.",
+        "data": {
+          "bio_login": "bioLogin id",
+          "unique_id": "uniqueId",
+          "selected_user": "selectedUser",
+          "device_id": "deviceId (usually empty)",
+          "is_mobile": "isMobile"
+        }
       }
     },
     "error": {
-      "required": "This field is required."
+      "required": "This field is required.",
+      "invalid_auth": "The credential was rejected. Check the values and try again.",
+      "cannot_connect": "Unable to connect to SmartSchool. Try again later.",
+      "unknown": "An unexpected error occurred. Please try again.",
+      "already_configured": "These device credentials are already used by another SmartSchool integration."
     },
     "abort": {
-      "already_configured": "This SmartSchool account is already configured."
+      "already_configured": "This SmartSchool account is already configured.",
+      "reauth_successful": "SmartSchool was reauthenticated successfully.",
+      "reauth_entry_missing": "The SmartSchool integration being reauthenticated no longer exists."
     }
   }
 }
