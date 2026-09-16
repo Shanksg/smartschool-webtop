@@ -18,7 +18,7 @@ returned a valid token.
    ```
    (run in the DevTools Console, then log in right away).
 
-2. After you land on the dashboard, capture the `bioLogin` the browser
+2. After you land on the dashboard, capture the `bioLogin` or `writeBio` the browser
    registered. In the DevTools **Network** tab, find the `loginByBio` request
    and copy its JSON body — it looks like:
    ```json
