@@ -106,7 +106,9 @@ class WebtopClient:
         if resp.status_code == 401:
             raise TokenExpired(f"{path} returned HTTP 401 - webToken is expired or revoked")
         if resp.status_code >= 400:
-            raise RequestFailed(f"{path} failed with HTTP {resp.status_code}: {resp.text[:200]}")
+            # Never put the response body in the message: it ends up in logs and
+            # can carry school content. The status code is enough to triage.
+            raise RequestFailed(f"{path} failed with HTTP {resp.status_code}")
         return resp
 
     def _post_json(self, path: str, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -115,7 +117,7 @@ class WebtopClient:
         try:
             body = resp.json()
         except (ValueError, json.JSONDecodeError) as e:
-            raise RequestFailed(f"{path} did not return JSON: {resp.text[:200]}") from e
+            raise RequestFailed(f"{path} did not return JSON (HTTP {resp.status_code})") from e
 
         if not isinstance(body, dict):
             raise RequestFailed(f"{path} returned unexpected payload type {type(body).__name__}")
@@ -125,7 +127,10 @@ class WebtopClient:
             # 'view is blocked' is the wall this project hit in February; keep it
             # legible rather than collapsing it into a generic failure.
             raise ApiError(
-                f"{path} returned status=false (errorDescription={desc!r})",
+                # errorDescription stays on the exception for callers that want it
+                # (token_test/bio_test print it), but not in str(err), which
+                # flows into Home Assistant logs.
+                f"{path} returned status=false",
                 error_description=desc,
                 error_id=body.get("errorId"),
                 payload=body,
@@ -255,8 +260,8 @@ class WebtopClient:
             return True
         except TokenExpired:
             return False
-        except ApiError as e:
-            logger.warning(f"CheckToken returned status=false: {e.error_description!r}")
+        except ApiError:
+            logger.warning("CheckToken returned status=false")
             return False
 
     # ------------------------------------------------------------------

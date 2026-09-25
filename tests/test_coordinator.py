@@ -401,3 +401,21 @@ def test_collect_marks_pupilcard_full_and_dashboard_partial():
     c2._client = FakeClient(raise_on={"pupilcard": ApiError("view is blocked")})
     data2 = c2._fetch()
     assert data2.full_window["stu-1"] is False
+
+
+# ---------------------------------------------------------------- log hygiene on the reauth trigger
+def test_rejected_credential_auth_failed_message_has_no_server_text(monkeypatch):
+    """HA logs the ConfigEntryAuthFailed message when it starts reauth."""
+    class RejectingClient:
+        def __init__(self, *a, **k):
+            pass
+        def login_by_bio(self, **kw):
+            raise ApiError("private-server-text", error_description="private-server-text")
+        def close(self):
+            pass
+    monkeypatch.setattr(coord_mod, "WebtopClient", RejectingClient)
+    c = make_coord()
+    with pytest.raises(ConfigEntryAuthFailed) as err:
+        c._mint_client()
+    assert "private-server-text" not in str(err.value)
+    assert isinstance(err.value.__cause__, ApiError), "cause stays chained for debugging"

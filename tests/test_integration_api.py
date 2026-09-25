@@ -149,3 +149,23 @@ def test_vendored_extract_forwards_default_date():
     body = {"data": {"dataTable": [{"lesson": "חשבון", "teacher": "T", "homeworkData": "p12"}]}}
     items = hw.extract(body, source="dashboard", default_date="2026-01-15")
     assert items[0].date == "2026-01-15" and items[0].date_is_synthetic
+
+
+# ---- log hygiene (mirrors the standalone copy) ----
+@pytest.mark.parametrize("response", [
+    FakeResponse(500, None, text="private-body-content"),
+    FakeResponse(200, None, text="<html>private-body-content</html>"),
+])
+def test_vendored_request_failed_message_excludes_response_body(monkeypatch, response):
+    c = _client(monkeypatch, response)
+    with pytest.raises(exc.RequestFailed) as err:
+        c.init_dashboard()
+    assert "private-body-content" not in str(err.value)
+
+
+def test_vendored_api_error_message_excludes_description_but_keeps_attribute(monkeypatch):
+    c = _client(monkeypatch, FakeResponse(200, {"status": False, "errorDescription": "private-desc"}))
+    with pytest.raises(exc.ApiError) as err:
+        c.init_dashboard()
+    assert "private-desc" not in str(err.value)
+    assert err.value.error_description == "private-desc"

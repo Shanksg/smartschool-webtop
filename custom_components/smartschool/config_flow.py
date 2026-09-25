@@ -6,6 +6,7 @@ credentials before updating and reloading the existing entry.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
@@ -29,6 +30,8 @@ from .const import (
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigFlowResult
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _validate_credentials(data: dict[str, Any]) -> None:
@@ -117,8 +120,14 @@ class SmartSchoolConfigFlow(ConfigFlow, domain=DOMAIN):
                         errors["base"] = "invalid_auth"
                     except RequestFailed:
                         errors["base"] = "cannot_connect"
-                    except Exception:
-                        # Never expose exception messages, payloads or secrets.
+                    except Exception as err:
+                        # Never expose exception messages, payloads or secrets:
+                        # log only the exception type, so a genuine bug is
+                        # still visible without leaking content.
+                        _LOGGER.error(
+                            "Unexpected error validating SmartSchool credentials (%s)",
+                            type(err).__name__,
+                        )
                         errors["base"] = "unknown"
                     else:
                         if (
