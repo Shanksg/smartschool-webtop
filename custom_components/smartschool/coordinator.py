@@ -69,6 +69,7 @@ class SmartSchoolCoordinator(DataUpdateCoordinator[SmartSchoolData]):
         super().__init__(
             hass,
             _LOGGER,
+            config_entry=entry,
             name=DOMAIN,
             update_interval=UPDATE_INTERVAL,
         )

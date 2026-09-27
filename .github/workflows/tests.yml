@@ -1,0 +1,46 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    name: pytest (HA ${{ matrix.ha }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Floor: the minimum version declared in hacs.json.
+          - ha: "2026.9.0"
+            python: "3.14"
+          # Ceiling: the newest Home Assistant release, so breaking core
+          # changes show up here before they reach an installed system.
+          - ha: "latest"
+            python: "3.14"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install Home Assistant
+        run: |
+          if [ "${{ matrix.ha }}" = "latest" ]; then
+            pip install homeassistant
+          else
+            pip install "homeassistant==${{ matrix.ha }}"
+          fi
+      # The standalone daemon's dependencies, unpinned so they resolve against
+      # Home Assistant's own constraints.
+      - name: Install test dependencies
+        run: pip install pytest loguru schedule pyyaml apprise paho-mqtt
+      - name: Show versions
+        run: python -c "from homeassistant.const import __version__ as v; import sys; print('HA', v, 'Python', sys.version.split()[0])"
+      - name: Run tests
+        run: python -m pytest tests/ -q
