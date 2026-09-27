@@ -4,6 +4,9 @@ Monitors SmartSchool (Webtop) for new **homework** and new **school messages**,
 pushing both to Home Assistant over MQTT plus any Apprise channel (Telegram,
 Discord, email, webhooks).
 
+It also ships as a native Home Assistant integration, installable via HACS —
+see [Home Assistant integration](#home-assistant-integration--native-entities-no-mqtt).
+
 ## How authentication works — read this first
 
 **SmartSchool cannot be logged into programmatically.** Login is gated behind a
@@ -258,16 +261,26 @@ The integration under `custom_components/smartschool/` produces the same sensors
 as native entities, set up through the UI, with the coordinator renewing its own
 token via `bioLogin`. No MQTT broker required.
 
-**Install (manual copy for now).** HACS custom-repository install lands in a
-later phase (it needs `hacs.json` + a tagged release); until then, copy the
-folder into your HA config:
+Requires **Home Assistant 2026.9.0 or newer**.
+
+**Install via HACS (recommended).** With [HACS](https://hacs.xyz) installed:
+
+1. HACS → ⋮ (top right) → **Custom repositories** → add
+   `https://github.com/Shanksg/smartschool-webtop` with type **Integration**.
+2. Open **SmartSchool (Webtop)** in HACS → **Download**, and pick the latest
+   release.
+3. Restart Home Assistant.
+
+HACS then offers updates as new releases are published. If you installed by
+hand before, HACS replaces that copy in place; an existing SmartSchool entry
+and its entities carry over unchanged.
+
+**Or install manually.** Copy the folder into your Home Assistant config
+directory, then restart Home Assistant:
 
 ```bash
-# from a checkout of this repo, into your Home Assistant config directory
 cp -r custom_components/smartschool <HA_CONFIG>/custom_components/smartschool
 ```
-
-Then restart Home Assistant.
 
 **Configure.** Settings → Devices & Services → **Add Integration** →
 *SmartSchool*. The config flow asks for the values from the browser's
@@ -295,6 +308,11 @@ MQTT path. When the preferred PupilCard endpoint is unavailable and the
 integration falls back to the today-only dashboard, `This Week` and `Upcoming`
 report **unknown** rather than a misleadingly small number.
 
+**When the credential stops working** (revoked, or the ~1-year `bioLogin`
+lifetime has passed), Home Assistant shows a **Reconnect SmartSchool** prompt.
+Paste fresh `loginByBio` values (see [EXTRACT_BIO.md](EXTRACT_BIO.md)); they are
+checked before saving, and the existing entry and entities are kept.
+
 ## Layout
 
 ```
@@ -310,16 +328,17 @@ custom_components/smartschool/   Home Assistant integration (installable via HAC
   api/           the core above, vendored (stdlib logging, no loguru)
   coordinator.py DataUpdateCoordinator (self-renewing auth, executor-wrapped)
   sensor.py      native HA entities: per-student homework + inbox device
-  config_flow.py UI setup for the bioLogin credential
-tests/           234 offline tests, no network
+  events.py      smartschool_new_homework / smartschool_new_message events
+  config_flow.py UI setup and reauthentication for the bioLogin credential
+hacs.json        HACS metadata (minimum Home Assistant version)
+tests/           282 offline tests, no network
 token_test.py    live token/API diagnostics
 bio_test.py      verifies the loginByBio renewal setup (see EXTRACT_BIO.md)
 ```
 
 Two ways to run it: the **standalone daemon** (Docker / `python3 run.py`,
 pushing to MQTT + Apprise), or the **Home Assistant integration** under
-`custom_components/` (native entities, UI setup). The integration is a
-work in progress; the standalone daemon is the stable path today.
+`custom_components/` (native entities, UI setup, installable via HACS).
 
 The endpoint map was derived from the SmartSchool web client, reimplemented
 synchronously and extended with token renewal and session keep-alive. Password
@@ -333,6 +352,20 @@ python3 -m pytest tests/ -q
 ```
 
 Offline and hermetic — all HTTP is stubbed.
+
+The integration tests need Home Assistant 2026.9.0 or newer, which requires
+Python 3.14. Without Home Assistant they are skipped; with an older one they
+are skipped too, and pytest prints a warning in its header. The standalone
+daemon's tests always run. To run everything:
+
+```bash
+python3.14 -m venv venv && . venv/bin/activate
+pip install "homeassistant>=2026.9.0" pytest loguru schedule pyyaml apprise paho-mqtt
+python -m pytest tests/ -q
+```
+
+CI runs the suite on the minimum supported Home Assistant and on the newest
+release, plus HACS and hassfest validation.
 
 ## License
 
