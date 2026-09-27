@@ -25,8 +25,10 @@ def flow(monkeypatch):
     monkeypatch.setattr("homeassistant.components.persistent_notification.async_dismiss", Mock())
     result = flow_mod.SmartSchoolConfigFlow()
     result.context = {"entry_id": "entry-a", "source": "reauth"}
+    # update_listeners mirrors a real ConfigEntry; newer HA reads it inside
+    # async_update_reload_and_abort.
     entry = SimpleNamespace(entry_id="entry-a", domain="smartschool", unique_id="browser-a",
-                            data={**CREDS, "future_setting": True})
+                            data={**CREDS, "future_setting": True}, update_listeners=[])
     manager = Mock()
     manager.async_get_entry.return_value = entry
     manager.async_entries.return_value = [entry]
