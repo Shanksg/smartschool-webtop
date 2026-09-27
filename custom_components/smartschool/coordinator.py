@@ -120,9 +120,9 @@ class SmartSchoolCoordinator(DataUpdateCoordinator[SmartSchoolData]):
                 )
             except (ApiError, TokenExpired) as err:
                 # The credential was rejected (status=false or 401) -> reauth.
-                raise ConfigEntryAuthFailed(
-                    f"bioLogin credential rejected: {err}"
-                ) from err
+                # HA logs this message when it starts reauth, so keep it free
+                # of server text; the cause is still chained for debugging.
+                raise ConfigEntryAuthFailed("bioLogin credential rejected") from err
             # RequestFailed (timeout / transport / HTTP error) is transient and
             # propagates so the caller surfaces it as UpdateFailed, not a
             # spurious reauthentication.

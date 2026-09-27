@@ -5,7 +5,7 @@ EVENT_NEW_HOMEWORK = f"{DOMAIN}_new_homework"
 EVENT_NEW_MESSAGE = f"{DOMAIN}_new_message"
 
 # Config-entry data keys (the values captured from the browser's loginByBio
-# request; see the integration docs). Validation and use land in later phases.
+# request; see the integration docs).
 CONF_BIO_LOGIN = "bio_login"
 CONF_UNIQUE_ID = "unique_id"
 CONF_SELECTED_USER = "selected_user"

@@ -373,3 +373,42 @@ def test_refresh_token_tolerates_non_dict_body(monkeypatch):
     client = make_client(monkeypatch, FakeResponse(200, [1, 2, 3]))
     result = client.refresh_token()
     assert result.ok is False and result.rotated is False
+
+
+# ----------------------------------------------------------------------
+# log hygiene: exception text flows into logs, so it must not carry server
+# content. Diagnostics stay available on the exception's attributes.
+# ----------------------------------------------------------------------
+@pytest.mark.parametrize("response", [
+    FakeResponse(500, None, text="private-body-content"),
+    FakeResponse(200, None, text="<html>private-body-content</html>"),
+])
+def test_request_failed_message_excludes_response_body(monkeypatch, response):
+    client = make_client(monkeypatch, response)
+    with pytest.raises(RequestFailed) as exc:
+        client.init_dashboard()
+    assert "private-body-content" not in str(exc.value)
+    assert "HTTP" in str(exc.value), "status code is kept for triage"
+
+
+def test_api_error_message_excludes_description_but_keeps_attribute(monkeypatch):
+    body = {"status": False, "errorDescription": "private-server-description"}
+    client = make_client(monkeypatch, FakeResponse(200, body))
+    with pytest.raises(ApiError) as exc:
+        client.init_dashboard()
+    assert "private-server-description" not in str(exc.value)
+    assert exc.value.error_description == "private-server-description"
+
+
+def test_check_token_log_excludes_description(monkeypatch, caplog):
+    from loguru import logger
+
+    handler = logger.add(caplog.handler, format="{message}")
+    try:
+        body = {"status": False, "errorDescription": "private-server-description"}
+        client = make_client(monkeypatch, FakeResponse(200, body))
+        assert client.check_token() is False
+    finally:
+        logger.remove(handler)
+    assert "CheckToken returned status=false" in caplog.text
+    assert "private-server-description" not in caplog.text
