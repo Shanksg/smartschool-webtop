@@ -7,10 +7,10 @@ credentials before updating and reloading the existing entry.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import voluptuous as vol
-from homeassistant.config_entries import ConfigFlow
+from homeassistant.config_entries import ConfigFlow, ConfigFlowResult, UnknownEntry
 from homeassistant.helpers.selector import (
     TextSelector,
     TextSelectorConfig,
@@ -27,9 +27,6 @@ from .const import (
     CONF_UNIQUE_ID,
     DOMAIN,
 )
-
-if TYPE_CHECKING:
-    from homeassistant.config_entries import ConfigFlowResult
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -83,8 +80,10 @@ class SmartSchoolConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Validate replacements and preserve the entry and entity identities."""
-        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
-        if entry is None or entry.domain != DOMAIN:
+        try:
+            entry = self._get_reauth_entry()
+        except UnknownEntry:
+            # The entry was removed while the reauth prompt was open.
             return self.async_abort(reason="reauth_entry_missing")
 
         errors: dict[str, str] = {}
@@ -130,13 +129,8 @@ class SmartSchoolConfigFlow(ConfigFlow, domain=DOMAIN):
                         )
                         errors["base"] = "unknown"
                     else:
-                        if (
-                            replacement == dict(entry.data)
-                            and entry.unique_id == cleaned[CONF_UNIQUE_ID]
-                        ):
-                            # Older HA helpers only reload changed entries.
-                            self.hass.config_entries.async_schedule_reload(entry.entry_id)
-                            return self.async_abort(reason="reauth_successful")
+                        # Reloads even when nothing changed (the credential may
+                        # simply have recovered), which is the helper's default.
                         return self.async_update_reload_and_abort(
                             entry, data=replacement, unique_id=cleaned[CONF_UNIQUE_ID]
                         )

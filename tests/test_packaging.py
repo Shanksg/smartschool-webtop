@@ -45,4 +45,14 @@ def test_hacs_json_matches_manifest():
     hacs = json.loads((ROOT / "hacs.json").read_text(encoding="utf-8"))
     assert hacs["name"] == _manifest()["name"]
     year, month, *_ = (int(x) for x in hacs["homeassistant"].split("."))
-    assert (year, month) >= (2024, 3), "sensor descriptions need frozen EntityDescription (2024.x)"
+    # The reauth flow uses _get_reauth_entry() and relies on
+    # async_update_reload_and_abort reloading unchanged entries; the
+    # coordinator passes config_entry= explicitly.
+    assert (year, month) >= (2026, 9)
+
+
+def test_ci_floor_matches_hacs_minimum():
+    hacs = json.loads((ROOT / "hacs.json").read_text(encoding="utf-8"))
+    workflow = (ROOT / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
+    floor = hacs["homeassistant"]
+    assert f'ha: "{floor}"' in workflow, "CI must test the declared minimum version"

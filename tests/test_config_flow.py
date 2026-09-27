@@ -10,6 +10,7 @@ import pytest
 
 pytest.importorskip("homeassistant")
 
+from homeassistant.config_entries import UnknownEntry  # noqa: E402
 from homeassistant.data_entry_flow import AbortFlow  # noqa: E402
 
 from custom_components.smartschool import config_flow as flow_mod
@@ -25,12 +26,13 @@ def flow(monkeypatch):
     monkeypatch.setattr("homeassistant.components.persistent_notification.async_dismiss", Mock())
     result = flow_mod.SmartSchoolConfigFlow()
     result.context = {"entry_id": "entry-a", "source": "reauth"}
-    # update_listeners mirrors a real ConfigEntry; newer HA reads it inside
-    # async_update_reload_and_abort.
+    # title and update_listeners mirror a real ConfigEntry: HA reads the title
+    # for the reauth dialog and update_listeners in async_update_reload_and_abort.
     entry = SimpleNamespace(entry_id="entry-a", domain="smartschool", unique_id="browser-a",
-                            data={**CREDS, "future_setting": True}, update_listeners=[])
+                            title="SmartSchool", data={**CREDS, "future_setting": True},
+                            update_listeners=[])
     manager = Mock()
-    manager.async_get_entry.return_value = entry
+    manager.async_get_known_entry.return_value = entry
     manager.async_entries.return_value = [entry]
     manager.flow.async_progress_by_handler.return_value = []
     result.hass = SimpleNamespace(config_entries=manager, async_add_executor_job=AsyncMock())
@@ -85,7 +87,7 @@ def test_validation_errors_preserve_entry_and_remain_retryable(flow, error, code
     assert "private" not in repr(result) + caplog.text
     if code == "unknown":
         assert "ValueError" in caplog.text, "type is logged so real bugs stay visible"
-    assert flow.hass.config_entries.async_get_entry.return_value.data["bio_login"] == "old-secret"
+    assert flow.hass.config_entries.async_get_known_entry.return_value.data["bio_login"] == "old-secret"
     flow.hass.config_entries.async_update_entry.assert_not_called()
     flow.hass.config_entries.async_schedule_reload.assert_not_called()
 
@@ -117,7 +119,7 @@ def test_other_entry_device_credential_is_rejected(flow):
 
 
 def test_removed_entry_aborts(flow):
-    flow.hass.config_entries.async_get_entry.return_value = None
+    flow.hass.config_entries.async_get_known_entry.side_effect = UnknownEntry
     assert run(flow)["reason"] == "reauth_entry_missing"
     flow.hass.async_add_executor_job.assert_not_called()
 
