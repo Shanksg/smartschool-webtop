@@ -298,7 +298,8 @@ cp -r custom_components/smartschool <HA_CONFIG>/custom_components/smartschool
 Entities created:
 
 - **Per student** (device `SmartSchool - <name>`): Homework Count (due today),
-  Homework This Week, Homework Upcoming, Homework Details.
+  Homework This Week, Homework Upcoming, Homework Details, and a Homework
+  to-do list.
 - **Inbox** (device `SmartSchool - Messages`): Messages Unread, Total, Latest,
   Details.
 
@@ -332,6 +333,28 @@ of the students those values can see match the ones already set up (by id or
 name), the form warns that they may belong to a different account and asks you
 to confirm before saving — so a mix-up cannot silently swap in another family's
 students. To add a second account, use **Add Integration** instead.
+
+#### Homework to-do lists
+
+Each student's device also has a **Homework** to-do list — open it from
+**To-do lists** in the sidebar, the to-do card, or Assist. One item per
+assignment:
+
+| Field | Value |
+|---|---|
+| Title | Subject |
+| Due | The due date (blank when only the today-only fallback answered) |
+| Description | Homework and teacher |
+
+Items whose due date has passed start out **completed**. Tick or untick an
+item to override that; the choice is saved straight away and survives
+restarts. The list is tick-off only: SmartSchool is the source of truth, so
+items cannot be renamed, re-dated, edited, added or deleted here.
+
+What you tick is stored privately per account in
+`.storage/smartschool.todo.<entry_id>` — item fingerprints, statuses and
+dates only, never school content — and deleted when you remove the
+integration.
 
 #### Options
 
@@ -399,10 +422,11 @@ custom_components/smartschool/   Home Assistant integration (installable via HAC
   sensor.py      native HA entities: per-student homework + inbox device
   events.py      smartschool_new_homework / smartschool_new_message events
   students.py    stable per-student keys (survive an encrypted-id change)
+  todo.py        per-student homework to-do lists (tick-off only)
   config_flow.py UI setup, reauthentication and options for the bioLogin credential
   diagnostics.py redacted diagnostics download (no credentials, ids or content)
 hacs.json        HACS metadata (minimum Home Assistant version)
-tests/           375 offline tests, no network
+tests/           402 offline tests, no network
 token_test.py    live token/API diagnostics
 bio_test.py      verifies the loginByBio renewal setup (see EXTRACT_BIO.md)
 ```
