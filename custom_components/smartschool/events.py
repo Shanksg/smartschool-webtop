@@ -23,6 +23,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, EVENT_NEW_HOMEWORK, EVENT_NEW_MESSAGE
+from .students import device_identifier
 
 if TYPE_CHECKING:
     from .coordinator import SmartSchoolData
@@ -173,7 +174,8 @@ class SmartSchoolEvents:
         changed = False
         try:
             for student in data.students:
-                student_id = student.student_id
+                # The stable key, so history survives an encrypted-id change.
+                student_id = data.key_of(student)
                 if self._students.get(student_id) != today:
                     self._students[student_id] = today
                     changed = True
@@ -197,7 +199,7 @@ class SmartSchoolEvents:
                     if notify:
                         self._fire(
                             EVENT_NEW_HOMEWORK,
-                            f"{self.entry_id}_student_{student_id}",
+                            device_identifier(self.entry_id, student_id),
                             {
                                 "student_id": student_id,
                                 "student_name": student.name,

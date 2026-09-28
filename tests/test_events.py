@@ -22,6 +22,13 @@ def snapshot(homework=(), messages=(), *, full=True, fresh=True, student="studen
 
 
 @pytest.fixture
+def no_devices(monkeypatch):
+    """No student devices registered yet (a coordinator built without HA)."""
+    monkeypatch.setattr("custom_components.smartschool.coordinator.known_students",
+                        lambda hass, entry_id: {})
+
+
+@pytest.fixture
 def tracker(monkeypatch, make_store):
     registry = Mock()
     registry.async_get_device.return_value = SimpleNamespace(id="device-a")
@@ -100,9 +107,10 @@ def test_new_students_and_fresh_history_seed_silently_accounts_are_independent(t
     assert tracker.hass.bus.async_fire.call_count == 2
 
 
-def test_events_run_after_executor_returns_and_failed_fetch_does_not_advance(tracker):
+def test_events_run_after_executor_returns_and_failed_fetch_does_not_advance(tracker, no_devices):
     coordinator = SmartSchoolCoordinator.__new__(SmartSchoolCoordinator)
     coordinator._events = tracker
+    coordinator.entry = SimpleNamespace(entry_id="entry-a")
     coordinator.hass = SimpleNamespace(async_add_executor_job=AsyncMock(return_value=snapshot()))
     asyncio.run(coordinator._async_update_data())
     coordinator.hass.async_add_executor_job.side_effect = RuntimeError("fetch failed")
@@ -116,13 +124,14 @@ def test_events_run_after_executor_returns_and_failed_fetch_does_not_advance(tra
 
 
 @pytest.mark.parametrize("kind", ["homework", "messages"])
-def test_publish_failure_keeps_data_and_retries_only_unpublished_items(tracker, caplog, kind):
+def test_publish_failure_keeps_data_and_retries_only_unpublished_items(tracker, caplog, kind, no_devices):
     tracker.async_process(snapshot())
     items = ([HomeworkItem("Math", "First"), HomeworkItem("Math", "Second")]
              if kind == "homework" else [Message("First"), Message("Second")])
     data = snapshot(**{kind: items})
     coordinator = SmartSchoolCoordinator.__new__(SmartSchoolCoordinator)
     coordinator._events = tracker
+    coordinator.entry = SimpleNamespace(entry_id="entry-a")
     coordinator.hass = SimpleNamespace(async_add_executor_job=AsyncMock(return_value=data))
     tracker.hass.bus.async_fire.side_effect = [None, RuntimeError("private-content-sentinel")]
 

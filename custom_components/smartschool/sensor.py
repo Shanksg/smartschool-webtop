@@ -22,6 +22,7 @@ from homeassistant.util import dt as dt_util
 from .api.models import HomeworkItem, Message, Student
 from .const import DOMAIN
 from .coordinator import SmartSchoolCoordinator, SmartSchoolData
+from .students import DEVICE_NAME_PREFIX, device_identifier
 
 INBOX_ID = "inbox"
 
@@ -220,11 +221,14 @@ async def async_setup_entry(
             return
         new_entities: list[SensorEntity] = []
         for student in data.students:
-            if student.student_id in known:
+            key = data.key_of(student)
+            if key in known:
                 continue
-            known.add(student.student_id)
+            known.add(key)
             for desc in HOMEWORK_SENSORS:
-                new_entities.append(HomeworkSensor(coordinator, entry.entry_id, student, desc))
+                new_entities.append(
+                    HomeworkSensor(coordinator, entry.entry_id, student, desc, key=key)
+                )
         if new_entities:
             async_add_entities(new_entities)
 
@@ -247,17 +251,20 @@ class HomeworkSensor(CoordinatorEntity[SmartSchoolCoordinator], SensorEntity):
         entry_id: str,
         student: Student,
         description: HomeworkSensorDescription,
+        key: str | None = None,
     ) -> None:
         super().__init__(coordinator)
         self.entity_description = description
-        self._student_id = student.student_id
+        # The stable student key (students.py), not the encrypted id, which
+        # can change when the school year rolls over.
+        self._student_id = key or student.student_id
         # Scope ids by the config entry: two accounts must not share a device
         # or collide in the entity registry, even for the same student id.
-        dev = f"{entry_id}_student_{self._student_id}"
+        dev = device_identifier(entry_id, self._student_id)
         self._attr_unique_id = f"{dev}_{description.key}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, dev)},
-            name=f"SmartSchool - {student.name}".strip(),
+            name=f"{DEVICE_NAME_PREFIX}{student.name}".strip(),
             manufacturer="SmartSchool",
             model="Homework Tracker",
         )

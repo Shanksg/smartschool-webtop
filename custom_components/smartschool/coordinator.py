@@ -35,6 +35,7 @@ from .const import (
     DOMAIN,
 )
 from .events import SmartSchoolEvents
+from .students import assign_keys, known_students, normalize_name
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -56,7 +57,9 @@ class SmartSchoolData:
         messages_enabled: bool = True,
     ) -> None:
         self.students = students
-        self.homework = homework  # keyed by student_id
+        # Keyed by student_id as fetched; SmartSchoolCoordinator re-keys both
+        # dicts to stable student keys (see students.py) before publishing.
+        self.homework = homework
         self.messages = messages
         self.messages_fresh = messages_fresh
         # False when the inbox is switched off in the options: message sensors
@@ -66,12 +69,21 @@ class SmartSchoolData:
         # window, False if it came from the today-only dashboard fallback.
         # Window-dependent sensors report "unknown" when this is False.
         self.full_window = full_window or {}
+        # current encrypted student id -> stable key (empty until re-keyed)
+        self.keys: dict[str, str] = {}
+
+    def key_of(self, student: Student) -> str:
+        """The stable key for a student in this snapshot."""
+        return self.keys.get(student.student_id, student.student_id)
 
 
 class SmartSchoolCoordinator(DataUpdateCoordinator[SmartSchoolData]):
     """Polls SmartSchool, renewing the token via bioLogin as needed."""
 
     _messages_enabled = True
+    # stable key -> normalized name, for students seen earlier in this run
+    # (the device registry covers earlier runs).
+    _student_names: dict[str, str] | None = None
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(
@@ -110,6 +122,7 @@ class SmartSchoolCoordinator(DataUpdateCoordinator[SmartSchoolData]):
     async def _async_update_data(self) -> SmartSchoolData:
         """Fetch homework and messages (all blocking work in the executor)."""
         data = await self.hass.async_add_executor_job(self._fetch)
+        self._async_assign_student_keys(data)
         # Event bus calls belong on the event loop, after the fetch succeeds.
         try:
             self._events.async_process(data)
@@ -118,6 +131,17 @@ class SmartSchoolCoordinator(DataUpdateCoordinator[SmartSchoolData]):
             # tracebacks may contain school content, so keep this log generic.
             _LOGGER.warning("Event publishing failed; keeping successfully fetched data")
         return data
+
+    def _async_assign_student_keys(self, data: SmartSchoolData) -> None:
+        """Re-key the snapshot to stable student keys (event loop only)."""
+        if self._student_names is None:
+            self._student_names = {}
+        known = {**self._student_names, **known_students(self.hass, self.entry.entry_id)}
+        data.keys = assign_keys(((s.student_id, s.name) for s in data.students), known)
+        data.homework = {data.keys.get(sid, sid): v for sid, v in data.homework.items()}
+        data.full_window = {data.keys.get(sid, sid): v for sid, v in data.full_window.items()}
+        for student in data.students:
+            self._student_names[data.key_of(student)] = normalize_name(student.name)
 
     # ------------------------------------------------------------------
     # everything below runs in a worker thread

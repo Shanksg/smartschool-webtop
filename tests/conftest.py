@@ -19,6 +19,7 @@ _HA_TEST_MODULES = {
     "test_history.py",
     "test_options_diagnostics.py",
     "test_sensor.py",
+    "test_students.py",
 }
 
 

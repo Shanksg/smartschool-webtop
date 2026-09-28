@@ -64,8 +64,8 @@ async def async_get_config_entry_diagnostics(
         info["students"] = [
             {
                 "student": f"student_{index}",
-                "homework_items": len(data.homework.get(student.student_id, [])),
-                "full_window": data.full_window.get(student.student_id),
+                "homework_items": len(data.homework.get(data.key_of(student), [])),
+                "full_window": data.full_window.get(data.key_of(student)),
             }
             for index, student in enumerate(data.students, start=1)
         ]
