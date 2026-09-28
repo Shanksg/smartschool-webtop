@@ -85,6 +85,9 @@ class SmartSchoolEvents:
         self._students: dict[str, str] = {}
         # None until the first fresh inbox response establishes a baseline.
         self._messages: dict[str, str] | None = None
+        # Set once history is flushed on unload: a poll that was already in
+        # flight must not announce items or write history after that point.
+        self._closed = False
 
     # ------------------------------------------------------------------ storage
     async def async_load(self) -> None:
@@ -142,13 +145,20 @@ class SmartSchoolEvents:
         }
 
     async def async_flush(self) -> None:
-        """Write history now (on unload), so a reload never reads stale data."""
+        """Write history now and stop tracking (on unload).
+
+        A reload then reads current data, and a removal is not undone by a late
+        delayed save; this also cancels any delayed save still pending.
+        """
+        self._closed = True
         await self._store.async_save(self._data_to_save())
 
     # ------------------------------------------------------------------ polling
     @callback
     def async_process(self, data: SmartSchoolData) -> None:
         """Publish only new identities, after establishing reliable baselines."""
+        if self._closed:
+            return
         today = dt_util.now().date().isoformat()
         changed = False
         try:

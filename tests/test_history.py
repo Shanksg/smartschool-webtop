@@ -326,9 +326,10 @@ def test_setup_loads_history_before_the_first_refresh(monkeypatch):
     assert order == ["load", "refresh"]
 
 
-def test_unload_flushes_history_before_closing(monkeypatch):
+def test_unload_stops_polling_then_flushes_then_closes(monkeypatch):
     order = []
     coordinator = SimpleNamespace(
+        async_shutdown=AsyncMock(side_effect=lambda: order.append("stop polling")),
         async_flush_history=AsyncMock(side_effect=lambda: order.append("flush")),
         async_shutdown_client=lambda: order.append("close"),
     )
@@ -342,7 +343,7 @@ def test_unload_flushes_history_before_closing(monkeypatch):
         async_add_executor_job=executor,
     )
     assert asyncio.run(integration.async_unload_entry(hass, SimpleNamespace(entry_id="entry-a")))
-    assert order == ["flush", "close"]
+    assert order == ["stop polling", "flush", "close"]
 
 
 def test_removing_the_entry_deletes_its_history(monkeypatch, make_store):
@@ -350,3 +351,30 @@ def test_removing_the_entry_deletes_its_history(monkeypatch, make_store):
     monkeypatch.setattr(integration, "history_store", lambda hass, entry_id: store)
     asyncio.run(integration.async_remove_entry(SimpleNamespace(), SimpleNamespace(entry_id="entry-a")))
     assert store.removed is True
+
+
+def test_poll_finishing_after_flush_is_ignored(hass, make_store, today):
+    """A poll in flight during unload must not announce or write anything."""
+    store = make_store()
+    tracker = start(hass, store)
+    tracker.async_process(snapshot([OLD]))
+    asyncio.run(tracker.async_flush())
+    saves = store.saves
+    tracker.async_process(snapshot([OLD, NEW], [NOTICE]))  # the late poll
+    assert fired(hass) == []
+    assert store.saves == saves
+
+    # The reloaded instance still announces NEW exactly once.
+    start(hass, store).async_process(snapshot([OLD, NEW]))
+    assert [e["item_id"] for e in fired(hass)] == [NEW.identity()]
+
+
+def test_late_poll_cannot_recreate_history_after_removal(hass, make_store, today, monkeypatch):
+    store = make_store()
+    tracker = start(hass, store)
+    tracker.async_process(snapshot([OLD]))
+    asyncio.run(tracker.async_flush())  # unload
+    monkeypatch.setattr(integration, "history_store", lambda hass, entry_id: store)
+    asyncio.run(integration.async_remove_entry(SimpleNamespace(), SimpleNamespace(entry_id="entry-a")))
+    tracker.async_process(snapshot([OLD, NEW]))  # in-flight poll lands afterwards
+    assert store.removed is True and store.data is None

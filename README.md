@@ -360,7 +360,7 @@ custom_components/smartschool/   Home Assistant integration (installable via HAC
   events.py      smartschool_new_homework / smartschool_new_message events
   config_flow.py UI setup and reauthentication for the bioLogin credential
 hacs.json        HACS metadata (minimum Home Assistant version)
-tests/           308 offline tests, no network
+tests/           310 offline tests, no network
 token_test.py    live token/API diagnostics
 bio_test.py      verifies the loginByBio renewal setup (see EXTRACT_BIO.md)
 ```

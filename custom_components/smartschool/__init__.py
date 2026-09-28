@@ -37,7 +37,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unloaded:
         coordinator = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
         if coordinator is not None:
-            # Persist pending history first, so a reload reads current data.
+            # Stop polling before persisting history: Home Assistant only runs
+            # the coordinator's own shutdown after this function returns, and
+            # a poll finishing in between must not announce or write anything.
+            await coordinator.async_shutdown()
+            # Persist history, so a reload reads current data.
             await coordinator.async_flush_history()
             # The client owns its own requests.Session (connection pool); close
             # it in the executor so a reload does not leak it.
