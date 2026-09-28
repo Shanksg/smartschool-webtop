@@ -144,6 +144,16 @@ class SmartSchoolEvents:
             "messages": None if self._messages is None else dict(self._messages),
         }
 
+    def stats(self) -> dict[str, Any]:
+        """Sizes of the stored history - counts only, never identities."""
+        return {
+            "students": len(self._students),
+            "homework_identities": sum(len(seen) for seen in self._homework.values()),
+            "inbox_baseline": self._messages is not None,
+            "message_identities": len(self._messages or {}),
+            "closed": self._closed,
+        }
+
     async def async_flush(self) -> None:
         """Write history now and stop tracking (on unload).
 

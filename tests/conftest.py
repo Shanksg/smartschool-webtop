@@ -17,6 +17,7 @@ _HA_TEST_MODULES = {
     "test_coordinator.py",
     "test_events.py",
     "test_history.py",
+    "test_options_diagnostics.py",
     "test_sensor.py",
 }
 

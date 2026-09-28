@@ -313,6 +313,13 @@ class MessageSensor(CoordinatorEntity[SmartSchoolCoordinator], SensorEntity):
         return data.messages if data else []
 
     @property
+    def available(self) -> bool:
+        # Unavailable while the inbox is switched off in the options, rather
+        # than reporting a misleading zero.
+        data: SmartSchoolData | None = self.coordinator.data
+        return super().available and (data is None or data.messages_enabled)
+
+    @property
     def native_value(self) -> Any:
         return self.entity_description.value_fn(self._messages())
 

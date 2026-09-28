@@ -27,15 +27,17 @@ from .const import (
     CONF_BIO_LOGIN,
     CONF_DEVICE_ID,
     CONF_IS_MOBILE,
+    CONF_MESSAGES_ENABLED,
+    CONF_SCAN_INTERVAL,
     CONF_SELECTED_USER,
     CONF_UNIQUE_ID,
+    DEFAULT_SCAN_INTERVAL,
     DOMAIN,
 )
 from .events import SmartSchoolEvents
 
 _LOGGER = logging.getLogger(__name__)
 
-UPDATE_INTERVAL = timedelta(minutes=30)
 # PupilCard returns a dated multi-day window (preferred); dashboard is today
 # only, used as a fallback.
 _HOMEWORK_SOURCES = ("pupilcard", "dashboard")
@@ -51,11 +53,15 @@ class SmartSchoolData:
         messages: list[Message],
         full_window: dict[str, bool] | None = None,
         messages_fresh: bool = True,
+        messages_enabled: bool = True,
     ) -> None:
         self.students = students
         self.homework = homework  # keyed by student_id
         self.messages = messages
         self.messages_fresh = messages_fresh
+        # False when the inbox is switched off in the options: message sensors
+        # go unavailable and the inbox history baseline is left untouched.
+        self.messages_enabled = messages_enabled
         # Per student: True if the homework is the full multi-day PupilCard
         # window, False if it came from the today-only dashboard fallback.
         # Window-dependent sensors report "unknown" when this is False.
@@ -65,15 +71,20 @@ class SmartSchoolData:
 class SmartSchoolCoordinator(DataUpdateCoordinator[SmartSchoolData]):
     """Polls SmartSchool, renewing the token via bioLogin as needed."""
 
+    _messages_enabled = True
+
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(
             hass,
             _LOGGER,
             config_entry=entry,
             name=DOMAIN,
-            update_interval=UPDATE_INTERVAL,
+            update_interval=timedelta(
+                minutes=entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
+            ),
         )
         self.entry = entry
+        self._messages_enabled = entry.options.get(CONF_MESSAGES_ENABLED, True)
         self._creds = BioCredentials(
             bio_login=entry.data[CONF_BIO_LOGIN],
             unique_id=entry.data.get(CONF_UNIQUE_ID, ""),
@@ -87,6 +98,10 @@ class SmartSchoolCoordinator(DataUpdateCoordinator[SmartSchoolData]):
     async def async_load_history(self) -> None:
         """Restore event history; must run before the first refresh."""
         await self._events.async_load()
+
+    def history_stats(self) -> dict[str, Any]:
+        """Counts only (for diagnostics)."""
+        return self._events.stats()
 
     async def async_flush_history(self) -> None:
         """Write event history now (on unload)."""
@@ -204,17 +219,22 @@ class SmartSchoolCoordinator(DataUpdateCoordinator[SmartSchoolData]):
         # The inbox is a bonus, not the job: an inbox outage must not discard
         # the homework fetched just above. Keep the previous message snapshot.
         messages_fresh = True
-        try:
-            messages = client.get_messages_inbox()
-        except (ApiError, RequestFailed) as err:
+        if not self._messages_enabled:
+            # Switched off in the options: no inbox request at all.
+            messages: list[Message] = []
             messages_fresh = False
-            previous = self.data.messages if self.data else []
-            _LOGGER.warning(
-                "Inbox fetch failed (%s); keeping the previous %d message(s)",
-                err,
-                len(previous),
-            )
-            messages = previous
+        else:
+            try:
+                messages = client.get_messages_inbox()
+            except (ApiError, RequestFailed) as err:
+                messages_fresh = False
+                previous = self.data.messages if self.data else []
+                _LOGGER.warning(
+                    "Inbox fetch failed (%s); keeping the previous %d message(s)",
+                    err,
+                    len(previous),
+                )
+                messages = previous
 
         return SmartSchoolData(
             students=students,
@@ -222,6 +242,7 @@ class SmartSchoolCoordinator(DataUpdateCoordinator[SmartSchoolData]):
             messages=messages,
             full_window=full_window,
             messages_fresh=messages_fresh,
+            messages_enabled=self._messages_enabled,
         )
 
     def _fetch_homework(
