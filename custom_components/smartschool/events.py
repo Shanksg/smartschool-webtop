@@ -234,7 +234,7 @@ class SmartSchoolEvents:
                     self._messages[key] = today
                     changed = True
 
-            if self._prune(today):
+            if self._prune(today, inbox_seen=data.messages_fresh):
                 changed = True
         finally:
             # Persist what was recorded even if a publish failed part-way, so
@@ -242,7 +242,7 @@ class SmartSchoolEvents:
             if changed:
                 self._store.async_delay_save(self._data_to_save, SAVE_DELAY)
 
-    def _prune(self, today: str) -> bool:
+    def _prune(self, today: str, *, inbox_seen: bool) -> bool:
         """Drop identities and students unseen for RETENTION_DAYS."""
         cutoff = (date.fromisoformat(today) - timedelta(days=RETENTION_DAYS)).isoformat()
         pruned = False
@@ -259,7 +259,11 @@ class SmartSchoolEvents:
             self._homework.pop((student_id, True), None)
             self._homework.pop((student_id, False), None)
             pruned = True
-        if self._messages:
+        # Only a poll that actually read the inbox can tell that a message is
+        # gone. While the inbox is switched off or failing, last-seen dates are
+        # not refreshed, so pruning then would empty the baseline and make every
+        # listed message look new once the inbox is read again.
+        if self._messages and inbox_seen:
             for key in [k for k, last in self._messages.items() if last < cutoff]:
                 del self._messages[key]
                 pruned = True
