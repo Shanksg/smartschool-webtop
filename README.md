@@ -313,6 +313,26 @@ lifetime has passed), Home Assistant shows a **Reconnect SmartSchool** prompt.
 Paste fresh `loginByBio` values (see [EXTRACT_BIO.md](EXTRACT_BIO.md)); they are
 checked before saving, and the existing entry and entities are kept.
 
+#### Options
+
+Settings → Devices & services → **SmartSchool** → **Configure**:
+
+| Option | Default | Notes |
+|---|---|---|
+| Polling interval | 30 min | 15–360 minutes. Each check is a few requests to SmartSchool. |
+| Monitor the message inbox | on | When off, the inbox is not checked and the message sensors show *unavailable*. Messages that arrive while it is off are announced when you switch it back on. |
+
+Saving the options reloads the integration.
+
+#### Diagnostics
+
+For a bug report: the SmartSchool integration page → ⋮ → **Download
+diagnostics**. The file contains the integration's settings with the
+credential fields redacted, whether the last check succeeded (errors by type
+only), and counts per student — homework items, inbox messages, stored history.
+Students appear as `student_1`, `student_2`, …; no names, ids or school content
+are included.
+
 #### Automation events
 
 When a poll finds a new item, the integration fires an event on the Home
