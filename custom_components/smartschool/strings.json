@@ -20,7 +20,8 @@
           "unique_id": "uniqueId",
           "selected_user": "selectedUser",
           "device_id": "deviceId (usually empty)",
-          "is_mobile": "isMobile"
+          "is_mobile": "isMobile",
+          "confirm_account": "This is the same account — continue anyway"
         }
       }
     },
@@ -29,7 +30,8 @@
       "invalid_auth": "The credential was rejected. Check the values and try again.",
       "cannot_connect": "Unable to connect to SmartSchool. Try again later.",
       "unknown": "An unexpected error occurred. Please try again.",
-      "already_configured": "These device credentials are already used by another SmartSchool integration."
+      "already_configured": "These device credentials are already used by another SmartSchool integration.",
+      "wrong_account": "None of the students this credential can see match the ones already set up, so it may belong to a different SmartSchool account. If it is the same account (for example after the school year changed), tick the box below and submit again. To add another account, use Add Integration instead."
     },
     "abort": {
       "already_configured": "This SmartSchool account is already configured.",

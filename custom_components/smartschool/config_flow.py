@@ -17,7 +17,8 @@ from homeassistant.config_entries import (
     OptionsFlowWithReload,
     UnknownEntry,
 )
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
@@ -46,8 +47,13 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
-def _validate_credentials(data: dict[str, Any]) -> None:
-    """Validate in an executor with a clean, short-lived client."""
+def _validate_credentials(data: dict[str, Any]) -> list[tuple[str, str]] | None:
+    """Validate in an executor with a clean, short-lived client.
+
+    Raises if the credential is rejected. Otherwise returns (student_id, name)
+    for the students it can see, or None if the list could not be read: the
+    list is only evidence about which account this is, never a reason to fail.
+    """
     client = WebtopClient("")
     try:
         token = client.login_by_bio(
@@ -59,8 +65,64 @@ def _validate_credentials(data: dict[str, Any]) -> None:
         )
         if not token or not client.check_token():
             raise TokenExpired("Replacement credential was rejected")
+        try:
+            students = client.get_students()
+        except (ApiError, RequestFailed, TokenExpired):
+            return None
+        return [(s.student_id, s.name or "") for s in students if s.student_id] or None
     finally:
         client.close()
+
+
+# Reauth-form-only checkbox shown with the "wrong_account" warning.
+CONF_CONFIRM_ACCOUNT = "confirm_account"
+
+_DEVICE_NAME_PREFIX = "SmartSchool - "  # sensor.py names student devices this way
+
+
+def _normalize_name(name: str) -> str:
+    return " ".join(name.split()).casefold()
+
+
+def _known_students(hass: HomeAssistant, entry_id: str) -> tuple[set[str], set[str]]:
+    """(ids, normalized names) of the students this entry has devices for."""
+    prefix = f"{entry_id}_student_"
+    ids: set[str] = set()
+    names: set[str] = set()
+    registry = dr.async_get(hass)
+    for device in dr.async_entries_for_config_entry(registry, entry_id):
+        student_ids = {
+            identifier[len(prefix):]
+            for domain, identifier in device.identifiers
+            if domain == DOMAIN and identifier.startswith(prefix)
+        }
+        if not student_ids:
+            continue  # the inbox device, or not ours
+        ids |= student_ids
+        # device.name is the name the integration set; a user's rename lives
+        # in name_by_user and does not affect it.
+        name = device.name or ""
+        if name.startswith(_DEVICE_NAME_PREFIX):
+            name = name[len(_DEVICE_NAME_PREFIX):]
+        if _normalize_name(name):
+            names.add(_normalize_name(name))
+    return ids, names
+
+
+def _looks_like_another_account(
+    students: list[tuple[str, str]] | None, known: tuple[set[str], set[str]]
+) -> bool:
+    """True only with positive evidence: known students, and none match.
+
+    Encrypted student ids can change when the school year rolls over, so a
+    matching name counts as the same account too.
+    """
+    known_ids, known_names = known
+    if not students or not (known_ids or known_names):
+        return False
+    ids = {sid for sid, _ in students}
+    names = {_normalize_name(name) for _, name in students if _normalize_name(name)}
+    return ids.isdisjoint(known_ids) and names.isdisjoint(known_names)
 
 
 STEP_USER_SCHEMA = vol.Schema(
@@ -114,6 +176,8 @@ class SmartSchoolConfigFlow(ConfigFlow, domain=DOMAIN):
                 key: value.strip() if isinstance(value, str) else value
                 for key, value in user_input.items()
             }
+            # A form-only answer, never saved into the entry.
+            confirmed = bool(cleaned.pop(CONF_CONFIRM_ACCOUNT, False))
             suggested.update(cleaned)
             for field in _REQUIRED_NONEMPTY:
                 if not cleaned.get(field):
@@ -133,7 +197,7 @@ class SmartSchoolConfigFlow(ConfigFlow, domain=DOMAIN):
                 else:
                     replacement = {**entry.data, **cleaned}
                     try:
-                        await self.hass.async_add_executor_job(
+                        students = await self.hass.async_add_executor_job(
                             _validate_credentials, replacement
                         )
                     except (ApiError, TokenExpired):
@@ -150,16 +214,32 @@ class SmartSchoolConfigFlow(ConfigFlow, domain=DOMAIN):
                         )
                         errors["base"] = "unknown"
                     else:
-                        # Reloads even when nothing changed (the credential may
-                        # simply have recovered), which is the helper's default.
-                        return self.async_update_reload_and_abort(
-                            entry, data=replacement, unique_id=cleaned[CONF_UNIQUE_ID]
-                        )
+                        if not confirmed and _looks_like_another_account(
+                            students, _known_students(self.hass, entry.entry_id)
+                        ):
+                            # None of this entry's students: probably another
+                            # account, which would swap in different children
+                            # and orphan the existing devices. Warn, and let the
+                            # user confirm (e.g. ids changed with the school
+                            # year) rather than lock them out.
+                            errors["base"] = "wrong_account"
+                        else:
+                            # Reloads even when nothing changed (the credential
+                            # may simply have recovered), the helper's default.
+                            return self.async_update_reload_and_abort(
+                                entry, data=replacement, unique_id=cleaned[CONF_UNIQUE_ID]
+                            )
 
         suggested.pop(CONF_BIO_LOGIN, None)
+        suggested.pop(CONF_CONFIRM_ACCOUNT, None)
+        schema = STEP_USER_SCHEMA
+        if errors.get("base") == "wrong_account":
+            schema = STEP_USER_SCHEMA.extend(
+                {vol.Optional(CONF_CONFIRM_ACCOUNT, default=False): bool}
+            )
         return self.async_show_form(
             step_id="reauth_confirm",
-            data_schema=self.add_suggested_values_to_schema(STEP_USER_SCHEMA, suggested),
+            data_schema=self.add_suggested_values_to_schema(schema, suggested),
             errors=errors,
         )
 
