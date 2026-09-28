@@ -230,3 +230,76 @@ def test_setup_adds_one_list_per_student_by_stable_key(monkeypatch, make_store):
     for cb in listeners:  # later polls do not duplicate lists
         cb()
     assert len(added) == 2
+
+
+# ---------------------------------------------------------------- unload
+def stale_state(make_store):
+    """State with a tick last seen yesterday, so the next touch schedules a save."""
+    store = make_store(data={"overrides": {"s1": {DUE.identity(): {"status": "completed", "seen": "2026-09-19"}}}})
+    state = todo_mod.TodoState(store)
+    asyncio.run(state.async_load())
+    return store, state
+
+
+def test_flush_writes_pending_change_then_stops_writing(make_store):
+    store, state = stale_state(make_store)
+    assert state.async_touch("s1", [DUE], date(2026, 9, 20)) is True  # delayed save pending
+    saves = store.saves
+    asyncio.run(state.async_flush())
+    assert store.saves == saves + 1, "pending change written immediately"
+
+    # Closed: nothing is written afterwards.
+    assert state.async_touch("s1", [DUE], date(2026, 9, 21)) is False
+    asyncio.run(state.async_set("s1", DUE, TodoItemStatus.NEEDS_ACTION, date(2026, 9, 21)))
+    assert store.saves == saves + 1
+
+
+def test_flush_without_pending_change_writes_nothing(make_store):
+    store = make_store()
+    state = todo_mod.TodoState(store)
+    asyncio.run(state.async_load())
+    asyncio.run(state.async_flush())
+    assert store.saves == 0 and store.data is None
+
+
+def test_setup_flushes_state_on_unload(monkeypatch, make_store):
+    coordinator = StubCoordinator([DUE])
+    monkeypatch.setattr(todo_mod, "todo_store", lambda hass, entry_id: make_store())
+    on_unload = []
+
+    class Entry:
+        entry_id = "entry-a"
+
+        def async_on_unload(self, func):
+            on_unload.append(func)
+
+    hass = SimpleNamespace(data={"smartschool": {"entry-a": coordinator}})
+    asyncio.run(todo_mod.async_setup_entry(hass, Entry(), lambda new, *a, **k: None))
+    assert any(getattr(f, "__name__", "") == "async_flush" for f in on_unload)
+
+
+def test_real_store_removal_is_not_undone_by_a_pending_save(tmp_path, today):
+    """HA's real Store: flush cancels the delayed write, so a removal stays removed."""
+    from homeassistant.core import HomeAssistant
+
+    async def scenario():
+        hass = HomeAssistant(str(tmp_path))
+        try:
+            store = todo_mod.todo_store(hass, "entry-a")
+            await store.async_save({"overrides": {"s1": {DUE.identity(): {
+                "status": "completed", "seen": "2026-09-19"}}}})
+            state = todo_mod.TodoState(store)
+            await state.async_load()
+            state.async_touch("s1", [DUE], date(2026, 9, 20))
+            pending_before = store._delay_handle is not None
+            await state.async_flush()                            # unload
+            await todo_mod.todo_store(hass, "entry-a").async_remove()  # removal
+            path = tmp_path / ".storage" / "smartschool.todo.entry-a"
+            return pending_before, store._delay_handle, path.exists()
+        finally:
+            await hass.async_stop(force=True)
+
+    pending_before, handle_after, exists = asyncio.run(scenario())
+    assert pending_before is True, "the scenario really had a delayed save pending"
+    assert handle_after is None, "flush cancelled it"
+    assert exists is False

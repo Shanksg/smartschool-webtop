@@ -77,6 +77,11 @@ class TodoState:
     def __init__(self, store: Store[dict[str, Any]]) -> None:
         self._store = store
         self._overrides: dict[str, dict[str, dict[str, str]]] = {}
+        # A delayed save is pending (see async_touch).
+        self._dirty = False
+        # Set on unload: nothing may be written afterwards, or a removal could
+        # be undone and a reload could have a fresh tick overwritten.
+        self._closed = False
 
     async def async_load(self) -> None:
         try:
@@ -132,6 +137,8 @@ class TodoState:
     @callback
     def async_touch(self, student: str, items: list[HomeworkItem], today: date) -> bool:
         """Refresh 'seen' for overridden items still upstream; prune stale ones."""
+        if self._closed:
+            return False
         changed = False
         stamp = today.isoformat()
         present = {item.identity() for item in items}
@@ -149,6 +156,7 @@ class TodoState:
             if not items_:
                 del self._overrides[student_key]
         if changed:
+            self._dirty = True
             self._store.async_delay_save(self._data, 10)
         return changed
 
@@ -162,7 +170,23 @@ class TodoState:
 
     async def _async_save(self) -> None:
         # User actions are rare: write immediately so a tick is never lost.
+        if self._closed:
+            return
+        self._dirty = False
         await self._store.async_save(self._data())
+
+    async def async_flush(self) -> None:
+        """On unload: write any pending change now and stop writing.
+
+        An immediate save also cancels a pending delayed save, so a removal is
+        not undone and a reload's fresh ticks are not overwritten by it.
+        """
+        if self._closed:
+            return
+        self._closed = True
+        if self._dirty:
+            self._dirty = False
+            await self._store.async_save(self._data())
 
 
 async def async_setup_entry(
@@ -174,6 +198,9 @@ async def async_setup_entry(
     coordinator: SmartSchoolCoordinator = hass.data[DOMAIN][entry.entry_id]
     state = TodoState(todo_store(hass, entry.entry_id))
     await state.async_load()
+    # Runs during unload, before a removal deletes the file or a reload sets up
+    # a new TodoState.
+    entry.async_on_unload(state.async_flush)
 
     known: set[str] = set()
 
