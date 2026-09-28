@@ -311,7 +311,10 @@ report **unknown** rather than a misleadingly small number.
 **When the credential stops working** (revoked, or the ~1-year `bioLogin`
 lifetime has passed), Home Assistant shows a **Reconnect SmartSchool** prompt.
 Paste fresh `loginByBio` values (see [EXTRACT_BIO.md](EXTRACT_BIO.md)); they are
-checked before saving, and the existing entry and entities are kept.
+checked before saving, and the existing entry and entities are kept. Values
+from a different SmartSchool account are refused — none of its children match
+the ones already set up — so a mix-up cannot swap in another family's
+students. To add a second account, use **Add Integration** instead.
 
 #### Options
 
