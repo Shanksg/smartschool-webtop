@@ -29,7 +29,8 @@
       "invalid_auth": "The credential was rejected. Check the values and try again.",
       "cannot_connect": "Unable to connect to SmartSchool. Try again later.",
       "unknown": "An unexpected error occurred. Please try again.",
-      "already_configured": "These device credentials are already used by another SmartSchool integration."
+      "already_configured": "These device credentials are already used by another SmartSchool integration.",
+      "wrong_account": "This credential belongs to a different SmartSchool account. Paste values for the account this integration was set up with, or use Add Integration to add another account."
     },
     "abort": {
       "already_configured": "This SmartSchool account is already configured.",

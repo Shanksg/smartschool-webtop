@@ -35,7 +35,13 @@ def flow(monkeypatch):
     manager.async_get_known_entry.return_value = entry
     manager.async_entries.return_value = [entry]
     manager.flow.async_progress_by_handler.return_value = []
-    result.hass = SimpleNamespace(config_entries=manager, async_add_executor_job=AsyncMock())
+    # Neutral account evidence by default: validation could not list students
+    # and the entry has no student devices, so the same-account check never
+    # blocks unless a test sets it up.
+    result.hass = SimpleNamespace(config_entries=manager,
+                                  async_add_executor_job=AsyncMock(return_value=None))
+    result.known_students = set()
+    monkeypatch.setattr(flow_mod, "_known_student_ids", lambda hass, entry_id: result.known_students)
     return result
 
 
@@ -128,6 +134,7 @@ def test_removed_entry_aborts(flow):
 def test_validation_uses_clean_client_and_always_closes(monkeypatch, failure):
     client = Mock()
     client.login_by_bio.side_effect = failure
+    client.get_students.return_value = []
     factory = Mock(return_value=client)
     monkeypatch.setattr(flow_mod, "WebtopClient", factory)
     if failure:
@@ -249,3 +256,82 @@ def test_user_step_aborts_when_browser_already_configured(user_flow):
     with pytest.raises(AbortFlow, match="already_configured"):
         run_user(user_flow, CREDS)
     user_flow.hass.config_entries.async_add.assert_not_called()
+
+
+# ---------------------------------------------------------------- same-account check (7b)
+def student(sid):
+    return SimpleNamespace(student_id=sid)
+
+
+def test_credential_for_another_account_is_rejected(flow):
+    flow.known_students = {"kid-1", "kid-2"}
+    flow.hass.async_add_executor_job.return_value = {"other-kid"}
+    result = run(flow, {**CREDS, "bio_login": "new-secret"})
+    assert result["errors"] == {"base": "wrong_account"}
+    assert suggested(result, "bio_login") is None
+    flow.hass.config_entries.async_update_entry.assert_not_called()
+    flow.hass.config_entries.async_schedule_reload.assert_not_called()
+
+
+@pytest.mark.parametrize("returned,known", [
+    ({"kid-1"}, {"kid-1", "kid-2"}),          # one child in common is enough
+    ({"kid-1", "new-kid"}, {"kid-1"}),       # a child added to the account
+    ({"kid-1"}, set()),                      # entry has no student devices yet
+    (None, {"kid-1"}),                       # student list could not be read
+])
+def test_same_account_or_no_evidence_is_accepted(flow, returned, known):
+    flow.known_students = known
+    flow.hass.async_add_executor_job.return_value = returned
+    assert run(flow, {**CREDS, "bio_login": "new-secret"})["reason"] == "reauth_successful"
+    flow.hass.config_entries.async_update_entry.assert_called_once()
+
+
+def test_validation_returns_visible_student_ids(monkeypatch):
+    client = Mock()
+    client.login_by_bio.return_value = "token"
+    client.check_token.return_value = True
+    client.get_students.return_value = [student("kid-1"), student("kid-2"), student("")]
+    monkeypatch.setattr(flow_mod, "WebtopClient", Mock(return_value=client))
+    assert flow_mod._validate_credentials(CREDS) == {"kid-1", "kid-2"}
+    client.close.assert_called_once()
+
+
+@pytest.mark.parametrize("outcome", [ApiError("x"), RequestFailed("x"), TokenExpired("x"), []])
+def test_unreadable_student_list_is_no_evidence_not_a_failure(monkeypatch, outcome):
+    client = Mock()
+    client.login_by_bio.return_value = "token"
+    client.check_token.return_value = True
+    if isinstance(outcome, Exception):
+        client.get_students.side_effect = outcome
+    else:
+        client.get_students.return_value = outcome
+    monkeypatch.setattr(flow_mod, "WebtopClient", Mock(return_value=client))
+    assert flow_mod._validate_credentials(CREDS) is None
+    client.close.assert_called_once()
+
+
+def test_known_students_come_from_this_entrys_student_devices(monkeypatch):
+    devices = [
+        SimpleNamespace(identifiers={("smartschool", "entry-a_student_kid-1")}),
+        SimpleNamespace(identifiers={("smartschool", "entry-a_student_kid-2")}),
+        SimpleNamespace(identifiers={("smartschool", "entry-a_inbox")}),
+        SimpleNamespace(identifiers={("other_domain", "entry-a_student_zzz")}),
+    ]
+    monkeypatch.setattr(flow_mod.dr, "async_get", lambda hass: "registry")
+    monkeypatch.setattr(flow_mod.dr, "async_entries_for_config_entry",
+                        lambda registry, entry_id: devices if entry_id == "entry-a" else [])
+    assert flow_mod._known_student_ids(object(), "entry-a") == {"kid-1", "kid-2"}
+    assert flow_mod._known_student_ids(object(), "entry-b") == set()
+
+
+def test_known_student_parsing_matches_sensor_device_identifiers():
+    from custom_components.smartschool import sensor as sensor_mod
+    from custom_components.smartschool.api.models import Student
+
+    stub = SimpleNamespace(data=None, last_update_success=True,
+                           async_add_listener=lambda *a, **k: (lambda: None))
+    desc = sensor_mod.HOMEWORK_SENSORS[0]
+    entity = sensor_mod.HomeworkSensor(stub, "entry-a", Student(student_id="kid-9", name="n"), desc)
+    (domain, identifier), = entity._attr_device_info["identifiers"]
+    prefix = "entry-a_student_"
+    assert domain == "smartschool" and identifier[len(prefix):] == "kid-9"

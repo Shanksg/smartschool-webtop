@@ -17,7 +17,8 @@ from homeassistant.config_entries import (
     OptionsFlowWithReload,
     UnknownEntry,
 )
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
@@ -46,8 +47,13 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
-def _validate_credentials(data: dict[str, Any]) -> None:
-    """Validate in an executor with a clean, short-lived client."""
+def _validate_credentials(data: dict[str, Any]) -> set[str] | None:
+    """Validate in an executor with a clean, short-lived client.
+
+    Raises if the credential is rejected. Otherwise returns the ids of the
+    students it can see, or None if the list could not be read: the list is
+    only evidence about which account this is, never a reason to fail.
+    """
     client = WebtopClient("")
     try:
         token = client.login_by_bio(
@@ -59,8 +65,25 @@ def _validate_credentials(data: dict[str, Any]) -> None:
         )
         if not token or not client.check_token():
             raise TokenExpired("Replacement credential was rejected")
+        try:
+            students = client.get_students()
+        except (ApiError, RequestFailed, TokenExpired):
+            return None
+        return {s.student_id for s in students if s.student_id} or None
     finally:
         client.close()
+
+
+def _known_student_ids(hass: HomeAssistant, entry_id: str) -> set[str]:
+    """Students this entry already has devices for (identifier scheme from sensor.py)."""
+    prefix = f"{entry_id}_student_"
+    registry = dr.async_get(hass)
+    return {
+        identifier[len(prefix):]
+        for device in dr.async_entries_for_config_entry(registry, entry_id)
+        for domain, identifier in device.identifiers
+        if domain == DOMAIN and identifier.startswith(prefix)
+    }
 
 
 STEP_USER_SCHEMA = vol.Schema(
@@ -133,7 +156,7 @@ class SmartSchoolConfigFlow(ConfigFlow, domain=DOMAIN):
                 else:
                     replacement = {**entry.data, **cleaned}
                     try:
-                        await self.hass.async_add_executor_job(
+                        students = await self.hass.async_add_executor_job(
                             _validate_credentials, replacement
                         )
                     except (ApiError, TokenExpired):
@@ -150,11 +173,18 @@ class SmartSchoolConfigFlow(ConfigFlow, domain=DOMAIN):
                         )
                         errors["base"] = "unknown"
                     else:
-                        # Reloads even when nothing changed (the credential may
-                        # simply have recovered), which is the helper's default.
-                        return self.async_update_reload_and_abort(
-                            entry, data=replacement, unique_id=cleaned[CONF_UNIQUE_ID]
-                        )
+                        known = _known_student_ids(self.hass, entry.entry_id)
+                        if students and known and students.isdisjoint(known):
+                            # Not one of this entry's students: another account.
+                            # Saving it would swap in different children and
+                            # orphan the existing devices.
+                            errors["base"] = "wrong_account"
+                        else:
+                            # Reloads even when nothing changed (the credential
+                            # may simply have recovered), the helper's default.
+                            return self.async_update_reload_and_abort(
+                                entry, data=replacement, unique_id=cleaned[CONF_UNIQUE_ID]
+                            )
 
         suggested.pop(CONF_BIO_LOGIN, None)
         return self.async_show_form(
