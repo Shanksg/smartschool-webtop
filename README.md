@@ -419,8 +419,9 @@ pip install "homeassistant>=2026.9.0" pytest loguru schedule pyyaml apprise paho
 python -m pytest tests/ -q
 ```
 
-CI runs the suite on the minimum supported Home Assistant and on the newest
-release, plus HACS and hassfest validation.
+CI runs the suite on pinned Home Assistant versions (the minimum supported one
+by default; add a row in `.github/workflows/tests.yml` to test a newer release),
+plus HACS and hassfest validation.
 
 ## License
 
