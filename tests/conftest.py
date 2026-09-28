@@ -10,7 +10,15 @@ need Home Assistant and always run.
 import json
 from pathlib import Path
 
-_HA_TEST_MODULES = {"test_config_flow.py", "test_coordinator.py", "test_events.py", "test_sensor.py"}
+import pytest
+
+_HA_TEST_MODULES = {
+    "test_config_flow.py",
+    "test_coordinator.py",
+    "test_events.py",
+    "test_history.py",
+    "test_sensor.py",
+}
 
 
 def _floor() -> tuple[int, ...]:
@@ -45,3 +53,42 @@ def pytest_ignore_collect(collection_path, config):
 def pytest_report_header(config):
     reason = _unsupported_reason()
     return f"WARNING: {reason}" if reason else None
+
+
+class FakeStore:
+    """In-memory stand-in for homeassistant.helpers.storage.Store.
+
+    A delayed save is applied immediately (recording the delay), which is what
+    matters for tests: what would be on disk after the write lands.
+    """
+
+    def __init__(self, data=None, error=None):
+        self.data = data
+        self.error = error
+        self.delays: list[float] = []
+        self.saves = 0
+        self.removed = False
+
+    async def async_load(self):
+        if self.error is not None:
+            raise self.error
+        return self.data
+
+    def async_delay_save(self, data_func, delay=0):
+        self.delays.append(delay)
+        self.data = data_func()
+        self.saves += 1
+
+    async def async_save(self, data):
+        self.data = data
+        self.saves += 1
+
+    async def async_remove(self):
+        self.data = None
+        self.removed = True
+
+
+@pytest.fixture
+def make_store():
+    """Factory: make_store(data=None, error=None) -> FakeStore."""
+    return FakeStore

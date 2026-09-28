@@ -84,6 +84,14 @@ class SmartSchoolCoordinator(DataUpdateCoordinator[SmartSchoolData]):
         self._client: WebtopClient | None = None
         self._events = SmartSchoolEvents(hass, entry.entry_id)
 
+    async def async_load_history(self) -> None:
+        """Restore event history; must run before the first refresh."""
+        await self._events.async_load()
+
+    async def async_flush_history(self) -> None:
+        """Write event history now (on unload)."""
+        await self._events.async_flush()
+
     async def _async_update_data(self) -> SmartSchoolData:
         """Fetch homework and messages (all blocking work in the executor)."""
         data = await self.hass.async_add_executor_job(self._fetch)

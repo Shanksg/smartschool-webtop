@@ -22,13 +22,13 @@ def snapshot(homework=(), messages=(), *, full=True, fresh=True, student="studen
 
 
 @pytest.fixture
-def tracker(monkeypatch):
+def tracker(monkeypatch, make_store):
     registry = Mock()
     registry.async_get_device.return_value = SimpleNamespace(id="device-a")
     monkeypatch.setattr(
         "custom_components.smartschool.events.dr.async_get", lambda hass: registry
     )
-    return SmartSchoolEvents(SimpleNamespace(bus=Mock()), "entry-a")
+    return SmartSchoolEvents(SimpleNamespace(bus=Mock()), "entry-a", store=make_store())
 
 
 def test_initial_load_silent_then_new_items_have_scoped_payload(tracker):
@@ -82,18 +82,20 @@ def test_source_changes_seed_silently_and_synthetic_dates_do_not_renotify(tracke
     assert tracker.hass.bus.async_fire.call_count == 1
 
 
-def test_new_students_and_reloads_seed_silently_accounts_are_independent(tracker):
+def test_new_students_and_fresh_history_seed_silently_accounts_are_independent(tracker, make_store):
     item = HomeworkItem("Math", "Exercise 1")
     tracker.async_process(snapshot())
     tracker.async_process(snapshot([item], student="student-b"))
     tracker.hass.bus.async_fire.assert_not_called()
     tracker.async_process(snapshot([item]))
     assert tracker.hass.bus.async_fire.call_count == 1
-    other = SmartSchoolEvents(tracker.hass, "entry-b")
+    other = SmartSchoolEvents(tracker.hass, "entry-b", store=make_store())
     other.async_process(snapshot())
     other.async_process(snapshot([item]))
     assert tracker.hass.bus.async_fire.call_args.args[1]["entry_id"] == "entry-b"
-    reloaded = SmartSchoolEvents(tracker.hass, "entry-a")
+    # A load with no stored history (e.g. an upgrade from a version without
+    # storage) seeds silently. Restarts WITH history: see test_history.py.
+    reloaded = SmartSchoolEvents(tracker.hass, "entry-a", store=make_store())
     reloaded.async_process(snapshot([item]))
     assert tracker.hass.bus.async_fire.call_count == 2
 
