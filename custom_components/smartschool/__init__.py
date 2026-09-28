@@ -13,8 +13,9 @@ from homeassistant.core import HomeAssistant
 from .const import DOMAIN
 from .coordinator import SmartSchoolCoordinator
 from .events import history_store
+from .todo import todo_store
 
-PLATFORMS: list[Platform] = [Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.TODO]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -50,5 +51,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Delete the entry's stored event history when the integration is removed."""
+    """Delete the entry's stored history and to-do state when it is removed."""
     await history_store(hass, entry.entry_id).async_remove()
+    await todo_store(hass, entry.entry_id).async_remove()

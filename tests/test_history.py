@@ -346,11 +346,13 @@ def test_unload_stops_polling_then_flushes_then_closes(monkeypatch):
     assert order == ["stop polling", "flush", "close"]
 
 
-def test_removing_the_entry_deletes_its_history(monkeypatch, make_store):
+def test_removing_the_entry_deletes_its_history_and_todo_state(monkeypatch, make_store):
     store = make_store(data={"homework": {}})
+    todo = make_store(data={"overrides": {}})
     monkeypatch.setattr(integration, "history_store", lambda hass, entry_id: store)
+    monkeypatch.setattr(integration, "todo_store", lambda hass, entry_id: todo)
     asyncio.run(integration.async_remove_entry(SimpleNamespace(), SimpleNamespace(entry_id="entry-a")))
-    assert store.removed is True
+    assert store.removed is True and todo.removed is True
 
 
 def test_poll_finishing_after_flush_is_ignored(hass, make_store, today):
@@ -375,6 +377,7 @@ def test_late_poll_cannot_recreate_history_after_removal(hass, make_store, today
     tracker.async_process(snapshot([OLD]))
     asyncio.run(tracker.async_flush())  # unload
     monkeypatch.setattr(integration, "history_store", lambda hass, entry_id: store)
+    monkeypatch.setattr(integration, "todo_store", lambda hass, entry_id: make_store())
     asyncio.run(integration.async_remove_entry(SimpleNamespace(), SimpleNamespace(entry_id="entry-a")))
     tracker.async_process(snapshot([OLD, NEW]))  # in-flight poll lands afterwards
     assert store.removed is True and store.data is None

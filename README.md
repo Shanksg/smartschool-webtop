@@ -399,10 +399,11 @@ custom_components/smartschool/   Home Assistant integration (installable via HAC
   sensor.py      native HA entities: per-student homework + inbox device
   events.py      smartschool_new_homework / smartschool_new_message events
   students.py    stable per-student keys (survive an encrypted-id change)
+  todo.py        per-student homework to-do lists (tick-off only)
   config_flow.py UI setup, reauthentication and options for the bioLogin credential
   diagnostics.py redacted diagnostics download (no credentials, ids or content)
 hacs.json        HACS metadata (minimum Home Assistant version)
-tests/           375 offline tests, no network
+tests/           398 offline tests, no network
 token_test.py    live token/API diagnostics
 bio_test.py      verifies the loginByBio renewal setup (see EXTRACT_BIO.md)
 ```

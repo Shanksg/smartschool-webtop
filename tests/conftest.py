@@ -20,6 +20,7 @@ _HA_TEST_MODULES = {
     "test_options_diagnostics.py",
     "test_sensor.py",
     "test_students.py",
+    "test_todo.py",
 }
 
 
