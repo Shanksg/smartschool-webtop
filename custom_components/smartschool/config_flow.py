@@ -18,7 +18,6 @@ from homeassistant.config_entries import (
     UnknownEntry,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
@@ -43,6 +42,7 @@ from .const import (
     MAX_SCAN_INTERVAL,
     MIN_SCAN_INTERVAL,
 )
+from .students import known_students, normalize_name
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -77,36 +77,10 @@ def _validate_credentials(data: dict[str, Any]) -> list[tuple[str, str]] | None:
 # Reauth-form-only checkbox shown with the "wrong_account" warning.
 CONF_CONFIRM_ACCOUNT = "confirm_account"
 
-_DEVICE_NAME_PREFIX = "SmartSchool - "  # sensor.py names student devices this way
-
-
-def _normalize_name(name: str) -> str:
-    return " ".join(name.split()).casefold()
-
-
 def _known_students(hass: HomeAssistant, entry_id: str) -> tuple[set[str], set[str]]:
-    """(ids, normalized names) of the students this entry has devices for."""
-    prefix = f"{entry_id}_student_"
-    ids: set[str] = set()
-    names: set[str] = set()
-    registry = dr.async_get(hass)
-    for device in dr.async_entries_for_config_entry(registry, entry_id):
-        student_ids = {
-            identifier[len(prefix):]
-            for domain, identifier in device.identifiers
-            if domain == DOMAIN and identifier.startswith(prefix)
-        }
-        if not student_ids:
-            continue  # the inbox device, or not ours
-        ids |= student_ids
-        # device.name is the name the integration set; a user's rename lives
-        # in name_by_user and does not affect it.
-        name = device.name or ""
-        if name.startswith(_DEVICE_NAME_PREFIX):
-            name = name[len(_DEVICE_NAME_PREFIX):]
-        if _normalize_name(name):
-            names.add(_normalize_name(name))
-    return ids, names
+    """(stable keys, normalized names) of the students this entry has devices for."""
+    known = known_students(hass, entry_id)
+    return set(known), {name for name in known.values() if name}
 
 
 def _looks_like_another_account(
@@ -121,7 +95,7 @@ def _looks_like_another_account(
     if not students or not (known_ids or known_names):
         return False
     ids = {sid for sid, _ in students}
-    names = {_normalize_name(name) for _, name in students if _normalize_name(name)}
+    names = {normalize_name(name) for _, name in students if normalize_name(name)}
     return ids.isdisjoint(known_ids) and names.isdisjoint(known_names)
 
 

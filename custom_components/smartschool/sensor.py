@@ -22,6 +22,7 @@ from homeassistant.util import dt as dt_util
 from .api.models import HomeworkItem, Message, Student
 from .const import DOMAIN
 from .coordinator import SmartSchoolCoordinator, SmartSchoolData
+from .students import DEVICE_NAME_PREFIX, device_identifier
 
 INBOX_ID = "inbox"
 
@@ -117,7 +118,18 @@ HOMEWORK_SENSORS: tuple[HomeworkSensorDescription, ...] = (
         icon="mdi:text-box-multiple",
         # State stays short (HA caps it at 255); the full list is an attribute.
         value_fn=_details_state,
-        attrs_fn=lambda items, full: {"text": _render_homework(items, full)},
+        attrs_fn=lambda items, full: {
+            # Human-readable, today-first (hides the rest of the week on busy days).
+            "text": _render_homework(items, full),
+            # Structured: always the whole visible window, oldest first, so a
+            # card never has to parse `text`.
+            "items": [
+                h.as_dict()
+                for h in sorted(items, key=lambda h: (h.date or "", h.subject or ""))
+            ],
+            # False when only the today-only dashboard fallback answered.
+            "full_window": full,
+        },
     ),
 )
 
@@ -209,11 +221,14 @@ async def async_setup_entry(
             return
         new_entities: list[SensorEntity] = []
         for student in data.students:
-            if student.student_id in known:
+            key = data.key_of(student)
+            if key in known:
                 continue
-            known.add(student.student_id)
+            known.add(key)
             for desc in HOMEWORK_SENSORS:
-                new_entities.append(HomeworkSensor(coordinator, entry.entry_id, student, desc))
+                new_entities.append(
+                    HomeworkSensor(coordinator, entry.entry_id, student, desc, key=key)
+                )
         if new_entities:
             async_add_entities(new_entities)
 
@@ -225,6 +240,9 @@ class HomeworkSensor(CoordinatorEntity[SmartSchoolCoordinator], SensorEntity):
     """A per-student homework sensor."""
 
     _attr_has_entity_name = True
+    # Long, poll-by-poll attributes: useful live, pointless (and bulky) in the
+    # recorder's history. The state is still recorded.
+    _unrecorded_attributes = frozenset({"text", "items"})
     entity_description: HomeworkSensorDescription
 
     def __init__(
@@ -233,17 +251,20 @@ class HomeworkSensor(CoordinatorEntity[SmartSchoolCoordinator], SensorEntity):
         entry_id: str,
         student: Student,
         description: HomeworkSensorDescription,
+        key: str | None = None,
     ) -> None:
         super().__init__(coordinator)
         self.entity_description = description
-        self._student_id = student.student_id
+        # The stable student key (students.py), not the encrypted id, which
+        # can change when the school year rolls over.
+        self._student_id = key or student.student_id
         # Scope ids by the config entry: two accounts must not share a device
         # or collide in the entity registry, even for the same student id.
-        dev = f"{entry_id}_student_{self._student_id}"
+        dev = device_identifier(entry_id, self._student_id)
         self._attr_unique_id = f"{dev}_{description.key}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, dev)},
-            name=f"SmartSchool - {student.name}".strip(),
+            name=f"{DEVICE_NAME_PREFIX}{student.name}".strip(),
             manufacturer="SmartSchool",
             model="Homework Tracker",
         )
@@ -286,6 +307,7 @@ class MessageSensor(CoordinatorEntity[SmartSchoolCoordinator], SensorEntity):
     """An account-level inbox sensor."""
 
     _attr_has_entity_name = True
+    _unrecorded_attributes = frozenset({"text"})
     entity_description: MessageSensorDescription
 
     def __init__(

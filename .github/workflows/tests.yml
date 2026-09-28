@@ -13,16 +13,19 @@ jobs:
   pytest:
     name: pytest (HA ${{ matrix.ha }})
     runs-on: ubuntu-latest
+    # A dependency resolution that goes wrong can otherwise hold a PR for
+    # half an hour or more before pip gives up.
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
+        # Pinned versions only: an unpinned "latest" made pip re-resolve a
+        # brand-new release on every run, which was slow and flaky (PyPI
+        # timeouts, resolution-too-deep). To test a newer Home Assistant, add a
+        # row with its exact version, e.g. - ha: "2026.10.1"; keep the floor.
         include:
           # Floor: the minimum version declared in hacs.json.
           - ha: "2026.9.0"
-            python: "3.14"
-          # Ceiling: the newest Home Assistant release, so breaking core
-          # changes show up here before they reach an installed system.
-          - ha: "latest"
             python: "3.14"
     steps:
       - uses: actions/checkout@v4
@@ -30,12 +33,7 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - name: Install Home Assistant
-        run: |
-          if [ "${{ matrix.ha }}" = "latest" ]; then
-            pip install homeassistant
-          else
-            pip install "homeassistant==${{ matrix.ha }}"
-          fi
+        run: pip install "homeassistant==${{ matrix.ha }}"
       # The standalone daemon's dependencies, unpinned so they resolve against
       # Home Assistant's own constraints.
       - name: Install test dependencies

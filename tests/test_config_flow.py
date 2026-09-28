@@ -339,34 +339,6 @@ def test_unreadable_student_list_is_no_evidence_not_a_failure(monkeypatch, outco
     client.close.assert_called_once()
 
 
-def test_known_students_come_from_this_entrys_student_devices(monkeypatch):
-    devices = [
-        SimpleNamespace(identifiers={("smartschool", "entry-a_student_kid-1")}, name="SmartSchool - Dana"),
-        SimpleNamespace(identifiers={("smartschool", "entry-a_student_kid-2")}, name="SmartSchool -   Noam  "),
-        SimpleNamespace(identifiers={("smartschool", "entry-a_inbox")}, name="SmartSchool - Messages"),
-        SimpleNamespace(identifiers={("other_domain", "entry-a_student_zzz")}, name="SmartSchool - Zed"),
-    ]
-    monkeypatch.setattr(flow_mod.dr, "async_get", lambda hass: "registry")
-    monkeypatch.setattr(flow_mod.dr, "async_entries_for_config_entry",
-                        lambda registry, entry_id: devices if entry_id == "entry-a" else [])
-    assert flow_mod._known_students(object(), "entry-a") == ({"kid-1", "kid-2"}, {"dana", "noam"})
-    assert flow_mod._known_students(object(), "entry-b") == (set(), set())
-
-
-def test_known_student_parsing_matches_sensor_devices():
-    from custom_components.smartschool import sensor as sensor_mod
-    from custom_components.smartschool.api.models import Student
-
-    stub = SimpleNamespace(data=None, last_update_success=True,
-                           async_add_listener=lambda *a, **k: (lambda: None))
-    desc = sensor_mod.HOMEWORK_SENSORS[0]
-    entity = sensor_mod.HomeworkSensor(stub, "entry-a", Student(student_id="kid-9", name="Dana"), desc)
-    info = entity._attr_device_info
-    (domain, identifier), = info["identifiers"]
-    assert domain == "smartschool" and identifier == "entry-a_student_kid-9"
-    assert info["name"] == flow_mod._DEVICE_NAME_PREFIX + "Dana"
-
-
 def test_reauth_strings_cover_the_confirm_checkbox():
     import json
     from pathlib import Path

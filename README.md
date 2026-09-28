@@ -308,6 +308,22 @@ MQTT path. When the preferred PupilCard endpoint is unavailable and the
 integration falls back to the today-only dashboard, `This Week` and `Upcoming`
 report **unknown** rather than a misleadingly small number.
 
+For dashboard cards, `Homework Details` also has two structured attributes:
+
+| Attribute | Contents |
+|---|---|
+| `items` | The whole visible window as a list — `date`, `subject`, `teacher`, `homework`, `description` for each item, sorted by date — even on a day when `text` shows only today's homework |
+| `full_window` | `false` when only the today-only fallback answered, so a card can say the week is unavailable rather than empty |
+
+`text` and `items` are live-only: they are kept out of the recorder's history,
+since they change every poll. The sensor state is still recorded.
+
+**Across school years.** SmartSchool's student ids can change when the school
+year rolls over. Each student keeps the devices, entities and event history
+they started with: a new id is matched back to the same child by name. If the
+match is ambiguous (for example two children with the same name), the new id
+is treated as a new student rather than merged into the wrong one.
+
 **When the credential stops working** (revoked, or the ~1-year `bioLogin`
 lifetime has passed), Home Assistant shows a **Reconnect SmartSchool** prompt.
 Paste fresh `loginByBio` values (see [EXTRACT_BIO.md](EXTRACT_BIO.md)); they are
@@ -382,10 +398,11 @@ custom_components/smartschool/   Home Assistant integration (installable via HAC
   coordinator.py DataUpdateCoordinator (self-renewing auth, executor-wrapped)
   sensor.py      native HA entities: per-student homework + inbox device
   events.py      smartschool_new_homework / smartschool_new_message events
+  students.py    stable per-student keys (survive an encrypted-id change)
   config_flow.py UI setup, reauthentication and options for the bioLogin credential
   diagnostics.py redacted diagnostics download (no credentials, ids or content)
 hacs.json        HACS metadata (minimum Home Assistant version)
-tests/           351 offline tests, no network
+tests/           375 offline tests, no network
 token_test.py    live token/API diagnostics
 bio_test.py      verifies the loginByBio renewal setup (see EXTRACT_BIO.md)
 ```
@@ -418,8 +435,9 @@ pip install "homeassistant>=2026.9.0" pytest loguru schedule pyyaml apprise paho
 python -m pytest tests/ -q
 ```
 
-CI runs the suite on the minimum supported Home Assistant and on the newest
-release, plus HACS and hassfest validation.
+CI runs the suite on pinned Home Assistant versions (the minimum supported one
+by default; add a row in `.github/workflows/tests.yml` to test a newer release),
+plus HACS and hassfest validation.
 
 ## License
 

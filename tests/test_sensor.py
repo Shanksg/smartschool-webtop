@@ -275,3 +275,49 @@ def test_expected_sensor_keys():
     assert {d.key for d in sensor_mod.MESSAGE_SENSORS} == {
         "unread", "total", "latest", "details"
     }
+
+
+# ---------------------------------------------------------------- structured items (dashboard card)
+def test_details_items_hold_the_whole_window_even_when_something_is_due_today():
+    items = [
+        HomeworkItem(subject="אנגלית", homework="later", date="2099-01-02", teacher="Y"),
+        HomeworkItem(subject="מתמטיקה", homework="due today", date=TODAY, teacher="T"),
+        HomeworkItem(subject="היסטוריה", homework="earlier", date="2000-01-01", teacher="Z"),
+    ]
+    coord, stu = _data(homework={"s1": items})
+    attrs = _hw(coord, stu, "details").extra_state_attributes
+    # `text` is today-first and hides the rest of the week...
+    assert "later" not in attrs["text"] and "earlier" not in attrs["text"]
+    # ...`items` always carries the whole window, sorted by date.
+    assert [i["homework"] for i in attrs["items"]] == ["earlier", "due today", "later"]
+    assert attrs["items"][1] == items[1].as_dict()
+    assert attrs["full_window"] is True
+
+
+def test_details_items_sort_by_subject_within_a_day():
+    items = [HomeworkItem(subject="b", homework="2", date=TODAY),
+             HomeworkItem(subject="a", homework="1", date=TODAY)]
+    coord, stu = _data(homework={"s1": items})
+    assert [i["subject"] for i in _hw(coord, stu, "details").extra_state_attributes["items"]] == ["a", "b"]
+
+
+def test_details_full_window_false_on_the_today_only_fallback():
+    coord, stu = _data(homework={"s1": [HomeworkItem(subject="a", homework="x", date=TODAY)]},
+                       full_window={"s1": False})
+    attrs = _hw(coord, stu, "details").extra_state_attributes
+    assert attrs["full_window"] is False and len(attrs["items"]) == 1
+
+
+def test_details_items_empty_list_when_no_homework():
+    coord, stu = _data(homework={"s1": []})
+    attrs = _hw(coord, stu, "details").extra_state_attributes
+    assert attrs["items"] == [] and attrs["full_window"] is True
+
+
+def test_long_attributes_are_not_recorded():
+    assert sensor_mod.HomeworkSensor._unrecorded_attributes == frozenset({"text", "items"})
+    assert sensor_mod.MessageSensor._unrecorded_attributes == frozenset({"text"})
+    # Checked against HA's own combined set, so a rename in core would show up.
+    coord, stu = _data()
+    entity = _hw(coord, stu, "details")
+    assert {"text", "items"} <= entity._Entity__combined_unrecorded_attributes
