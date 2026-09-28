@@ -313,6 +313,29 @@ lifetime has passed), Home Assistant shows a **Reconnect SmartSchool** prompt.
 Paste fresh `loginByBio` values (see [EXTRACT_BIO.md](EXTRACT_BIO.md)); they are
 checked before saving, and the existing entry and entities are kept.
 
+#### Automation events
+
+When a poll finds a new item, the integration fires an event on the Home
+Assistant event bus. Use it as the trigger of an automation (for example to
+send a Telegram message); the events themselves send no notifications.
+
+| Event | Payload |
+|---|---|
+| `smartschool_new_homework` | `entry_id`, `device_id`, `student_id`, `student_name`, `item_id`, `subject`, `homework`, `date`, `teacher`, `description`, `date_is_synthetic` |
+| `smartschool_new_message` | `entry_id`, `device_id`, `item_id`, `subject`, `sender`, `sent_at`, `has_read`, `has_files` |
+
+`device_id` is the student's (or the Messages) device. Filter on `entry_id`
+if you have more than one account configured. To watch them live: Developer
+Tools → Events → listen to `smartschool_new_homework`.
+
+- The first successful poll after setup, a restart or a reload is silent: it
+  records what is already there instead of announcing it.
+- Each item fires once per load. Marking a message read does not fire again.
+- History is kept in memory, so items that arrive while Home Assistant is
+  offline are absorbed silently at the next start.
+- Payloads carry school content for your own automations; credentials and
+  raw API responses are never included.
+
 ## Layout
 
 ```
