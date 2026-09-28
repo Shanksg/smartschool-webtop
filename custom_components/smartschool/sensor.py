@@ -117,7 +117,18 @@ HOMEWORK_SENSORS: tuple[HomeworkSensorDescription, ...] = (
         icon="mdi:text-box-multiple",
         # State stays short (HA caps it at 255); the full list is an attribute.
         value_fn=_details_state,
-        attrs_fn=lambda items, full: {"text": _render_homework(items, full)},
+        attrs_fn=lambda items, full: {
+            # Human-readable, today-first (hides the rest of the week on busy days).
+            "text": _render_homework(items, full),
+            # Structured: always the whole visible window, oldest first, so a
+            # card never has to parse `text`.
+            "items": [
+                h.as_dict()
+                for h in sorted(items, key=lambda h: (h.date or "", h.subject or ""))
+            ],
+            # False when only the today-only dashboard fallback answered.
+            "full_window": full,
+        },
     ),
 )
 
@@ -225,6 +236,9 @@ class HomeworkSensor(CoordinatorEntity[SmartSchoolCoordinator], SensorEntity):
     """A per-student homework sensor."""
 
     _attr_has_entity_name = True
+    # Long, poll-by-poll attributes: useful live, pointless (and bulky) in the
+    # recorder's history. The state is still recorded.
+    _unrecorded_attributes = frozenset({"text", "items"})
     entity_description: HomeworkSensorDescription
 
     def __init__(
@@ -286,6 +300,7 @@ class MessageSensor(CoordinatorEntity[SmartSchoolCoordinator], SensorEntity):
     """An account-level inbox sensor."""
 
     _attr_has_entity_name = True
+    _unrecorded_attributes = frozenset({"text"})
     entity_description: MessageSensorDescription
 
     def __init__(
