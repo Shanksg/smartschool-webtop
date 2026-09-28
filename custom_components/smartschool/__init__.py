@@ -12,6 +12,7 @@ from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
 from .coordinator import SmartSchoolCoordinator
+from .events import history_store
 
 PLATFORMS: list[Platform] = [Platform.SENSOR]
 
@@ -19,6 +20,8 @@ PLATFORMS: list[Platform] = [Platform.SENSOR]
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up SmartSchool from a config entry."""
     coordinator = SmartSchoolCoordinator(hass, entry)
+    # History must be in place before the first poll decides what is new.
+    await coordinator.async_load_history()
     # Raises ConfigEntryAuthFailed (-> reauth) or ConfigEntryNotReady (-> retry)
     # as appropriate; only proceeds once a first fetch succeeds.
     await coordinator.async_config_entry_first_refresh()
@@ -34,7 +37,18 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unloaded:
         coordinator = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
         if coordinator is not None:
+            # Stop polling before persisting history: Home Assistant only runs
+            # the coordinator's own shutdown after this function returns, and
+            # a poll finishing in between must not announce or write anything.
+            await coordinator.async_shutdown()
+            # Persist history, so a reload reads current data.
+            await coordinator.async_flush_history()
             # The client owns its own requests.Session (connection pool); close
             # it in the executor so a reload does not leak it.
             await hass.async_add_executor_job(coordinator.async_shutdown_client)
     return unloaded
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Delete the entry's stored event history when the integration is removed."""
+    await history_store(hass, entry.entry_id).async_remove()
