@@ -242,3 +242,31 @@ def test_entities_created_after_a_restart_past_rotation_keep_their_ids(monkeypat
     }
     count = next(e for e in homework_entities if e.entity_description.key == "count_week")
     assert count.native_value == 1
+
+
+def test_this_runs_name_beats_a_stale_registry_name(monkeypatch):
+    """A name change during a run, then an id change in the same run."""
+    c = rekeying_coordinator(monkeypatch, registered={"A": "dana"})  # device named at setup
+    renamed = snapshot("A", name="Dana Cohen")
+    c._async_assign_student_keys(renamed)
+    rotated = snapshot("A2", name="Dana Cohen")
+    c._async_assign_student_keys(rotated)
+    assert rotated.key_of(rotated.students[0]) == "A"
+
+
+def test_a_split_student_seeds_silently_rather_than_renotifying(monkeypatch, make_store):
+    """If an id change cannot be matched, the 'new' student is not a flood."""
+    monkeypatch.setattr(events_mod.dr, "async_get", lambda hass: Mock(
+        async_get_device=Mock(return_value=None)))
+    hass = SimpleNamespace(bus=Mock())
+    tracker = SmartSchoolEvents(hass, "entry-a", store=make_store())
+    c = rekeying_coordinator(monkeypatch)
+    old = HomeworkItem("Math", "old", "2026-09-01")
+    before = snapshot("A", homework=[old])
+    c._async_assign_student_keys(before)
+    tracker.async_process(before)
+    unmatched = snapshot("A2", name="", homework=[old])   # blank name: cannot be matched
+    c._async_assign_student_keys(unmatched)
+    assert unmatched.key_of(unmatched.students[0]) == "A2"
+    tracker.async_process(unmatched)
+    hass.bus.async_fire.assert_not_called()

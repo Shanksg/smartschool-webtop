@@ -136,7 +136,9 @@ class SmartSchoolCoordinator(DataUpdateCoordinator[SmartSchoolData]):
         """Re-key the snapshot to stable student keys (event loop only)."""
         if self._student_names is None:
             self._student_names = {}
-        known = {**self._student_names, **known_students(self.hass, self.entry.entry_id)}
+        # This run's names win: a device's registry name only updates at setup,
+        # so it can be older than what the server reported this run.
+        known = {**known_students(self.hass, self.entry.entry_id), **self._student_names}
         data.keys = assign_keys(((s.student_id, s.name) for s in data.students), known)
         data.homework = {data.keys.get(sid, sid): v for sid, v in data.homework.items()}
         data.full_window = {data.keys.get(sid, sid): v for sid, v in data.full_window.items()}
