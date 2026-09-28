@@ -10,8 +10,18 @@ import logging
 from typing import Any
 
 import voluptuous as vol
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult, UnknownEntry
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlowWithReload,
+    UnknownEntry,
+)
+from homeassistant.core import callback
 from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
     TextSelector,
     TextSelectorConfig,
     TextSelectorType,
@@ -23,9 +33,14 @@ from .const import (
     CONF_BIO_LOGIN,
     CONF_DEVICE_ID,
     CONF_IS_MOBILE,
+    CONF_MESSAGES_ENABLED,
+    CONF_SCAN_INTERVAL,
     CONF_SELECTED_USER,
     CONF_UNIQUE_ID,
+    DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    MAX_SCAN_INTERVAL,
+    MIN_SCAN_INTERVAL,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -69,6 +84,12 @@ class SmartSchoolConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle the SmartSchool config flow."""
 
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> SmartSchoolOptionsFlow:
+        """Options: polling interval and inbox on/off."""
+        return SmartSchoolOptionsFlow()
 
     async def async_step_reauth(
         self, entry_data: dict[str, Any]
@@ -178,3 +199,41 @@ class SmartSchoolConfigFlow(ConfigFlow, domain=DOMAIN):
             )
 
         return self.async_show_form(step_id="user", data_schema=STEP_USER_SCHEMA)
+
+
+OPTIONS_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL): NumberSelector(
+            NumberSelectorConfig(
+                min=MIN_SCAN_INTERVAL,
+                max=MAX_SCAN_INTERVAL,
+                step=5,
+                unit_of_measurement="min",
+                mode=NumberSelectorMode.BOX,
+            )
+        ),
+        vol.Required(CONF_MESSAGES_ENABLED, default=True): bool,
+    }
+)
+
+
+class SmartSchoolOptionsFlow(OptionsFlowWithReload):
+    """Polling interval and inbox on/off; the entry reloads when they change."""
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        if user_input is not None:
+            return self.async_create_entry(
+                data={
+                    # NumberSelector yields a float; the coordinator wants minutes.
+                    CONF_SCAN_INTERVAL: int(user_input[CONF_SCAN_INTERVAL]),
+                    CONF_MESSAGES_ENABLED: bool(user_input[CONF_MESSAGES_ENABLED]),
+                }
+            )
+        return self.async_show_form(
+            step_id="init",
+            data_schema=self.add_suggested_values_to_schema(
+                OPTIONS_SCHEMA, dict(self.config_entry.options)
+            ),
+        )

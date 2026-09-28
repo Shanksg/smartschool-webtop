@@ -36,5 +36,21 @@
       "reauth_successful": "SmartSchool was reauthenticated successfully.",
       "reauth_entry_missing": "The SmartSchool integration being reauthenticated no longer exists."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "SmartSchool options",
+        "description": "How often to check SmartSchool, and whether to monitor the message inbox.",
+        "data": {
+          "scan_interval": "Polling interval",
+          "messages_enabled": "Monitor the message inbox"
+        },
+        "data_description": {
+          "scan_interval": "Minutes between checks (15-360). Each check is a few requests to SmartSchool.",
+          "messages_enabled": "When off, the inbox is not polled and the message sensors are unavailable."
+        }
+      }
+    }
   }
 }

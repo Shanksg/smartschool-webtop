@@ -378,3 +378,29 @@ def test_late_poll_cannot_recreate_history_after_removal(hass, make_store, today
     asyncio.run(integration.async_remove_entry(SimpleNamespace(), SimpleNamespace(entry_id="entry-a")))
     tracker.async_process(snapshot([OLD, NEW]))  # in-flight poll lands afterwards
     assert store.removed is True and store.data is None
+
+
+@pytest.mark.parametrize("reason", ["disabled", "failing"])
+def test_long_inbox_gap_does_not_reannounce_old_messages(hass, make_store, today, reason):
+    """Inbox off (or failing) for longer than the retention period, then back."""
+    store = make_store()
+    tracker = start(hass, store)
+    tracker.async_process(snapshot(messages=[NOTICE]))  # baseline
+    today("2027-01-15")  # > RETENTION_DAYS without reading the inbox
+    gap = snapshot(fresh=False)
+    if reason == "disabled":
+        gap.messages_enabled = False
+    tracker.async_process(gap)
+    assert NOTICE.identity() in store.data["messages"], "baseline survives the gap"
+
+    tracker.async_process(snapshot(messages=[NOTICE, FRESH_NOTICE]))  # inbox read again
+    assert [e["item_id"] for e in fired(hass, EVENT_NEW_MESSAGE)] == [FRESH_NOTICE.identity()]
+
+
+def test_messages_absent_from_a_real_inbox_response_are_still_pruned(hass, make_store, today):
+    store = make_store()
+    tracker = start(hass, store)
+    tracker.async_process(snapshot(messages=[NOTICE]))
+    today("2027-01-15")
+    tracker.async_process(snapshot(messages=[FRESH_NOTICE]))  # fresh response without NOTICE
+    assert NOTICE.identity() not in store.data["messages"]
