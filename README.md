@@ -328,11 +328,17 @@ send a Telegram message); the events themselves send no notifications.
 if you have more than one account configured. To watch them live: Developer
 Tools → Events → listen to `smartschool_new_homework`.
 
-- The first successful poll after setup, a restart or a reload is silent: it
-  records what is already there instead of announcing it.
-- Each item fires once per load. Marking a message read does not fire again.
-- History is kept in memory, so items that arrive while Home Assistant is
-  offline are absorbed silently at the next start.
+- The first successful poll after setup is silent: it records what is already
+  there instead of announcing it. The same applies after an upgrade from 0.1.0,
+  which kept no history.
+- Each item fires once. Marking a message read does not fire again.
+- History survives restarts and reloads. Items that arrived while Home
+  Assistant was offline fire at the first poll after it starts, as long as
+  they are still listed upstream; nothing already announced is repeated.
+- History is stored per account in `.storage/smartschool.history.<entry_id>`.
+  It holds only item fingerprints (hashes) and dates, never school content,
+  and is deleted when you remove the integration. Items absent upstream for
+  90 days are forgotten.
 - Payloads carry school content for your own automations; credentials and
   raw API responses are never included.
 
@@ -354,7 +360,7 @@ custom_components/smartschool/   Home Assistant integration (installable via HAC
   events.py      smartschool_new_homework / smartschool_new_message events
   config_flow.py UI setup and reauthentication for the bioLogin credential
 hacs.json        HACS metadata (minimum Home Assistant version)
-tests/           282 offline tests, no network
+tests/           308 offline tests, no network
 token_test.py    live token/API diagnostics
 bio_test.py      verifies the loginByBio renewal setup (see EXTRACT_BIO.md)
 ```
