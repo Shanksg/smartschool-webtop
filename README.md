@@ -311,9 +311,10 @@ report **unknown** rather than a misleadingly small number.
 **When the credential stops working** (revoked, or the ~1-year `bioLogin`
 lifetime has passed), Home Assistant shows a **Reconnect SmartSchool** prompt.
 Paste fresh `loginByBio` values (see [EXTRACT_BIO.md](EXTRACT_BIO.md)); they are
-checked before saving, and the existing entry and entities are kept. Values
-from a different SmartSchool account are refused — none of its children match
-the ones already set up — so a mix-up cannot swap in another family's
+checked before saving, and the existing entry and entities are kept. If none
+of the students those values can see match the ones already set up (by id or
+name), the form warns that they may belong to a different account and asks you
+to confirm before saving — so a mix-up cannot silently swap in another family's
 students. To add a second account, use **Add Integration** instead.
 
 #### Options
@@ -384,7 +385,7 @@ custom_components/smartschool/   Home Assistant integration (installable via HAC
   config_flow.py UI setup, reauthentication and options for the bioLogin credential
   diagnostics.py redacted diagnostics download (no credentials, ids or content)
 hacs.json        HACS metadata (minimum Home Assistant version)
-tests/           346 offline tests, no network
+tests/           351 offline tests, no network
 token_test.py    live token/API diagnostics
 bio_test.py      verifies the loginByBio renewal setup (see EXTRACT_BIO.md)
 ```

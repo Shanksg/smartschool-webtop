@@ -40,8 +40,8 @@ def flow(monkeypatch):
     # blocks unless a test sets it up.
     result.hass = SimpleNamespace(config_entries=manager,
                                   async_add_executor_job=AsyncMock(return_value=None))
-    result.known_students = set()
-    monkeypatch.setattr(flow_mod, "_known_student_ids", lambda hass, entry_id: result.known_students)
+    result.known_students = (set(), set())  # (ids, normalized names)
+    monkeypatch.setattr(flow_mod, "_known_students", lambda hass, entry_id: result.known_students)
     return result
 
 
@@ -259,25 +259,54 @@ def test_user_step_aborts_when_browser_already_configured(user_flow):
 
 
 # ---------------------------------------------------------------- same-account check (7b)
-def student(sid):
-    return SimpleNamespace(student_id=sid)
+def student(sid, name=""):
+    return SimpleNamespace(student_id=sid, name=name)
 
 
-def test_credential_for_another_account_is_rejected(flow):
-    flow.known_students = {"kid-1", "kid-2"}
-    flow.hass.async_add_executor_job.return_value = {"other-kid"}
+def test_another_account_is_warned_with_a_confirm_option(flow):
+    flow.known_students = ({"kid-1"}, {"dana"})
+    flow.hass.async_add_executor_job.return_value = [("other-kid", "Noam")]
     result = run(flow, {**CREDS, "bio_login": "new-secret"})
     assert result["errors"] == {"base": "wrong_account"}
+    assert "confirm_account" in [str(k) for k in result["data_schema"].schema]
     assert suggested(result, "bio_login") is None
+    assert suggested(result, "confirm_account") is None, "never pre-ticked"
     flow.hass.config_entries.async_update_entry.assert_not_called()
-    flow.hass.config_entries.async_schedule_reload.assert_not_called()
+
+
+def test_confirming_proceeds_and_the_checkbox_is_not_saved(flow):
+    flow.known_students = ({"kid-1"}, {"dana"})
+    flow.hass.async_add_executor_job.return_value = [("other-kid", "Noam")]
+    result = run(flow, {**CREDS, "bio_login": "new-secret", "confirm_account": True})
+    assert result["reason"] == "reauth_successful"
+    saved = flow.hass.config_entries.async_update_entry.call_args.kwargs["data"]
+    assert "confirm_account" not in saved
+    validated = flow.hass.async_add_executor_job.await_args.args[1]
+    assert "confirm_account" not in validated
+
+
+def test_school_year_id_rotation_is_recognised_by_name(flow):
+    """Encrypted ids can change when the school year rolls over; names do not."""
+    flow.known_students = ({"old-encrypted-id"}, {"dana cohen"})
+    flow.hass.async_add_executor_job.return_value = [("new-encrypted-id", "  Dana   COHEN ")]
+    assert run(flow, {**CREDS, "bio_login": "new-secret"})["reason"] == "reauth_successful"
+
+
+def test_confirm_field_only_appears_with_the_warning(flow):
+    result = asyncio.run(flow.async_step_reauth(CREDS))
+    assert "confirm_account" not in [str(k) for k in result["data_schema"].schema]
+    flow.hass.async_add_executor_job.side_effect = TokenExpired("x")
+    result = run(flow, {**CREDS, "bio_login": "new-secret"})
+    assert result["errors"] == {"base": "invalid_auth"}
+    assert "confirm_account" not in [str(k) for k in result["data_schema"].schema]
 
 
 @pytest.mark.parametrize("returned,known", [
-    ({"kid-1"}, {"kid-1", "kid-2"}),          # one child in common is enough
-    ({"kid-1", "new-kid"}, {"kid-1"}),       # a child added to the account
-    ({"kid-1"}, set()),                      # entry has no student devices yet
-    (None, {"kid-1"}),                       # student list could not be read
+    ([("kid-1", "")], ({"kid-1", "kid-2"}, set())),          # an id in common
+    ([("kid-1", ""), ("new-kid", "")], ({"kid-1"}, set())),  # a child added
+    ([("x", "Dana")], ({"kid-1"}, {"dana"})),                # a name in common
+    ([("kid-1", "")], (set(), set())),                       # nothing known yet
+    (None, ({"kid-1"}, {"dana"})),                           # list unreadable
 ])
 def test_same_account_or_no_evidence_is_accepted(flow, returned, known):
     flow.known_students = known
@@ -286,13 +315,13 @@ def test_same_account_or_no_evidence_is_accepted(flow, returned, known):
     flow.hass.config_entries.async_update_entry.assert_called_once()
 
 
-def test_validation_returns_visible_student_ids(monkeypatch):
+def test_validation_returns_visible_students(monkeypatch):
     client = Mock()
     client.login_by_bio.return_value = "token"
     client.check_token.return_value = True
-    client.get_students.return_value = [student("kid-1"), student("kid-2"), student("")]
+    client.get_students.return_value = [student("kid-1", "Dana"), student("kid-2"), student("", "x")]
     monkeypatch.setattr(flow_mod, "WebtopClient", Mock(return_value=client))
-    assert flow_mod._validate_credentials(CREDS) == {"kid-1", "kid-2"}
+    assert flow_mod._validate_credentials(CREDS) == [("kid-1", "Dana"), ("kid-2", "")]
     client.close.assert_called_once()
 
 
@@ -312,26 +341,38 @@ def test_unreadable_student_list_is_no_evidence_not_a_failure(monkeypatch, outco
 
 def test_known_students_come_from_this_entrys_student_devices(monkeypatch):
     devices = [
-        SimpleNamespace(identifiers={("smartschool", "entry-a_student_kid-1")}),
-        SimpleNamespace(identifiers={("smartschool", "entry-a_student_kid-2")}),
-        SimpleNamespace(identifiers={("smartschool", "entry-a_inbox")}),
-        SimpleNamespace(identifiers={("other_domain", "entry-a_student_zzz")}),
+        SimpleNamespace(identifiers={("smartschool", "entry-a_student_kid-1")}, name="SmartSchool - Dana"),
+        SimpleNamespace(identifiers={("smartschool", "entry-a_student_kid-2")}, name="SmartSchool -   Noam  "),
+        SimpleNamespace(identifiers={("smartschool", "entry-a_inbox")}, name="SmartSchool - Messages"),
+        SimpleNamespace(identifiers={("other_domain", "entry-a_student_zzz")}, name="SmartSchool - Zed"),
     ]
     monkeypatch.setattr(flow_mod.dr, "async_get", lambda hass: "registry")
     monkeypatch.setattr(flow_mod.dr, "async_entries_for_config_entry",
                         lambda registry, entry_id: devices if entry_id == "entry-a" else [])
-    assert flow_mod._known_student_ids(object(), "entry-a") == {"kid-1", "kid-2"}
-    assert flow_mod._known_student_ids(object(), "entry-b") == set()
+    assert flow_mod._known_students(object(), "entry-a") == ({"kid-1", "kid-2"}, {"dana", "noam"})
+    assert flow_mod._known_students(object(), "entry-b") == (set(), set())
 
 
-def test_known_student_parsing_matches_sensor_device_identifiers():
+def test_known_student_parsing_matches_sensor_devices():
     from custom_components.smartschool import sensor as sensor_mod
     from custom_components.smartschool.api.models import Student
 
     stub = SimpleNamespace(data=None, last_update_success=True,
                            async_add_listener=lambda *a, **k: (lambda: None))
     desc = sensor_mod.HOMEWORK_SENSORS[0]
-    entity = sensor_mod.HomeworkSensor(stub, "entry-a", Student(student_id="kid-9", name="n"), desc)
-    (domain, identifier), = entity._attr_device_info["identifiers"]
-    prefix = "entry-a_student_"
-    assert domain == "smartschool" and identifier[len(prefix):] == "kid-9"
+    entity = sensor_mod.HomeworkSensor(stub, "entry-a", Student(student_id="kid-9", name="Dana"), desc)
+    info = entity._attr_device_info
+    (domain, identifier), = info["identifiers"]
+    assert domain == "smartschool" and identifier == "entry-a_student_kid-9"
+    assert info["name"] == flow_mod._DEVICE_NAME_PREFIX + "Dana"
+
+
+def test_reauth_strings_cover_the_confirm_checkbox():
+    import json
+    from pathlib import Path
+
+    root = Path(flow_mod.__file__).parent
+    for name in ("strings.json", "translations/en.json"):
+        cfg = json.loads((root / name).read_text())["config"]
+        assert "confirm_account" in cfg["step"]["reauth_confirm"]["data"]
+        assert "wrong_account" in cfg["error"]
